@@ -9,20 +9,20 @@ upstream:
 
 destination:
   # Must match the "io.kubewarden.policy.ociUrl" annotation of the policies.
-  registry: ghcr.io/rancher/suse-security-policies
+  registry: ghcr.io/jvanz/testing-policies-ci
 
 # "ociUrl" comes from destination.registry. "io.kubewarden.policy.source"
 # keeps the upstream value, because this repository holds no source code.
 metadata:
   author: "SUSE <containers@suse.com>"
-  url: https://github.com/rancher/suse-security-policies
+  url: https://github.com/jvanz/testing-policies-ci
 
 # Values of the SBOM that the pipeline generates. The upstream SBOM is
 # republished unchanged, so it still verifies against the upstream identity.
 sbom:
   # The generator appends a UUID derived from the artifact digest, so each
   # artifact gets a unique namespace and a second run gets the same one.
-  namespace_base: https://github.com/rancher/suse-security-policies/spdx
+  namespace_base: https://github.com/jvanz/testing-policies-ci/spdx
   supplier: "Organization: SUSE"
   originator: "Organization: Kubewarden (cncf-kubewarden-maintainers@lists.cncf.io)"
   tool_name: suse-security-policies
