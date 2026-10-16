@@ -9,8 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var kwctl, sbomUtility, cosign, gh string
-
 func newRootCommand() *cobra.Command {
 	var configPath, policyName, policyVersion string
 	var j job
@@ -34,7 +32,7 @@ compact JSON list on stdout. In GitHub Actions, also set the step outputs
 "matrix" and "count" and write the job summary.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := setup(cmd, configPath, "repository", "gh")
+			cfg, err := setup(cmd, configPath, "repository")
 			if err != nil {
 				return err
 			}
@@ -56,14 +54,13 @@ compact JSON list on stdout. In GitHub Actions, also set the step outputs
 	df.StringVar(&policyName, "policy-name", "", "find only the release of this policy")
 	df.StringVar(&policyVersion, "policy-version", "", "find only this version, without the 'v' prefix. Needs --policy-name")
 	df.BoolVar(&j.dryRun, "dry-run", false, "mark the job summary as a dry run")
-	df.StringVar(&gh, "gh", "gh", "path of the gh program, or its name on the PATH")
 
 	repackageCmd := &cobra.Command{
 		Use:   "repackage",
 		Short: "Repackage one upstream policy release",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := setup(cmd, configPath, "repository", "sha", "policy-name", "policy-version", "kwctl", "sbom-utility", "cosign", "gh")
+			cfg, err := setup(cmd, configPath, "repository", "sha", "policy-name", "policy-version")
 			if err != nil {
 				return err
 			}
@@ -78,10 +75,6 @@ compact JSON list on stdout. In GitHub Actions, also set the step outputs
 	rf.StringVar(&policyVersion, "policy-version", "", "version of the upstream policy, without the 'v' prefix (required)")
 	rf.BoolVar(&j.dryRun, "dry-run", false, "push, sign and publish nothing, but run every check that only reads")
 	rf.StringVar(&j.workDir, "work-dir", "", "keep the files of the run in this directory, instead of a temporary directory")
-	rf.StringVar(&kwctl, "kwctl", "kwctl", "path of the kwctl program, or its name on the PATH")
-	rf.StringVar(&sbomUtility, "sbom-utility", "sbom-utility", "path of the sbom-utility program, or its name on the PATH")
-	rf.StringVar(&cosign, "cosign", "cosign", "path of the cosign program, or its name on the PATH")
-	rf.StringVar(&gh, "gh", "gh", "path of the gh program, or its name on the PATH")
 
 	root.AddCommand(checkConfig, discoverCmd, repackageCmd)
 	return root

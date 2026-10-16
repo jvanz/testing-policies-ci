@@ -35,17 +35,15 @@ type fake struct {
 	calls []string
 }
 
-// newFake replaces run until the test ends. It also sets the tool names,
-// which otherwise only the flags set, discards the log and clears the GitHub
-// Actions files, so that a test run in a workflow does not write to them.
+// newFake replaces run until the test ends. It also discards the log and
+// clears the GitHub Actions files, so that a test run in a workflow does not
+// write to them.
 func newFake(t *testing.T, work string, rules ...rule) *fake {
 	f := &fake{t: t, work: work, rules: rules}
-	oldRun, oldLog, oldTools := run, logOut, [4]string{kwctl, sbomUtility, cosign, gh}
+	oldRun, oldLog := run, logOut
 	run, logOut = f.run, io.Discard
-	kwctl, sbomUtility, cosign, gh = "kwctl", "sbom-utility", "cosign", "gh"
 	t.Cleanup(func() {
 		run, logOut = oldRun, oldLog
-		kwctl, sbomUtility, cosign, gh = oldTools[0], oldTools[1], oldTools[2], oldTools[3]
 	})
 	t.Setenv("GITHUB_OUTPUT", "")
 	t.Setenv("GITHUB_STEP_SUMMARY", "")

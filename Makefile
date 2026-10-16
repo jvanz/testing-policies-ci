@@ -8,22 +8,16 @@ BINARY := $(BIN_DIR)/repackager
 GOLANGCI_LINT_VERSION := v2.14.0
 # renovate: datasource=github-release-attachments depName=golangci/golangci-lint digestVersion=v2.14.0
 GOLANGCI_LINT_SHA256_linux_amd64 := ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
-# renovate: datasource=github-release-attachments depName=golangci/golangci-lint digestVersion=v2.14.0
-GOLANGCI_LINT_SHA256_darwin_arm64 := 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3
 
 # renovate: datasource=github-release-attachments depName=rhysd/actionlint
 ACTIONLINT_VERSION := v1.7.12
 # renovate: datasource=github-release-attachments depName=rhysd/actionlint digestVersion=v1.7.12
 ACTIONLINT_SHA256_linux_amd64 := 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-# renovate: datasource=github-release-attachments depName=rhysd/actionlint digestVersion=v1.7.12
-ACTIONLINT_SHA256_darwin_arm64 := aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f
 
 # renovate: datasource=github-release-attachments depName=koalaman/shellcheck
 SHELLCHECK_VERSION := v0.11.0
 # renovate: datasource=github-release-attachments depName=koalaman/shellcheck digestVersion=v0.11.0
 SHELLCHECK_SHA256_linux_amd64 := b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
-# renovate: datasource=github-release-attachments depName=koalaman/shellcheck digestVersion=v0.11.0
-SHELLCHECK_SHA256_darwin_arm64 := 339b930feb1ea764467013cc1f72d09cd6b869ebf1013296ba9055ab2ffbd26f
 
 # kwctl 1.39 is the first version whose "annotate" changes single
 # annotations. Use v1.39.0 when it is released.
@@ -31,29 +25,21 @@ SHELLCHECK_SHA256_darwin_arm64 := 339b930feb1ea764467013cc1f72d09cd6b869ebf10132
 KWCTL_VERSION := v1.39.0-rc.1
 # renovate: datasource=github-release-attachments depName=kubewarden/adm-controller digestVersion=v1.39.0-rc.1
 KWCTL_SHA256_linux_amd64 := 5f91372672e3098b8041f9db9e3f44382955123a24777b1671639704b4af5161
-# renovate: datasource=github-release-attachments depName=kubewarden/adm-controller digestVersion=v1.39.0-rc.1
-KWCTL_SHA256_darwin_arm64 := 1f6c103e4222e78d8fd5a2357f7330e54d94e0891471d6bd2a2a8e698cd74b25
 
 # renovate: datasource=github-release-attachments depName=CycloneDX/sbom-utility
 SBOM_UTILITY_VERSION := v0.19.2
 # renovate: datasource=github-release-attachments depName=CycloneDX/sbom-utility digestVersion=v0.19.2
 SBOM_UTILITY_SHA256_linux_amd64 := e0cd37e6e67b1d0e44dbb7b38e055a4e2ee66db590bb8e7f89e2d9b650f4490b
-# renovate: datasource=github-release-attachments depName=CycloneDX/sbom-utility digestVersion=v0.19.2
-SBOM_UTILITY_SHA256_darwin_arm64 := 9cfdf6b2308fc39b182e64438c78f847a58514899858792f44846bf95026fedf
 
 # renovate: datasource=github-release-attachments depName=sigstore/cosign
 COSIGN_VERSION := v3.1.3
 # renovate: datasource=github-release-attachments depName=sigstore/cosign digestVersion=v3.1.3
 COSIGN_SHA256_linux_amd64 := 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
-# renovate: datasource=github-release-attachments depName=sigstore/cosign digestVersion=v3.1.3
-COSIGN_SHA256_darwin_arm64 := 5cf948c2f4dfe59687bdd0b8523709067383e03982cc543475c8a7dc70e92a76
 
 # renovate: datasource=github-release-attachments depName=cli/cli
 GH_VERSION := v2.102.0
 # renovate: datasource=github-release-attachments depName=cli/cli digestVersion=v2.102.0
 GH_SHA256_linux_amd64 := bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
-# renovate: datasource=github-release-attachments depName=cli/cli digestVersion=v2.102.0
-GH_SHA256_darwin_arm64 := da922c20d1792e5b2cbf375593d7a658acf034c12c84e007e71c76ef959c337e
 
 # govulncheck has no release binaries, so "go install" builds it. Go
 # checks the module against go.sum of the module and the Go checksum
@@ -72,7 +58,10 @@ COSIGN := $(BIN_DIR)/cosign-$(COSIGN_VERSION)
 GH := $(BIN_DIR)/gh-$(GH_VERSION)
 GOVULNCHECK := $(BIN_DIR)/govulncheck-$(GOVULNCHECK_VERSION)
 RUNTIME_TOOLS := $(KWCTL) $(SBOM_UTILITY) $(COSIGN) $(GH)
-TOOLS := $(GOLANGCI_LINT) $(ACTIONLINT) $(SHELLCHECK) $(GOVULNCHECK) $(RUNTIME_TOOLS)
+# The repackager runs each runtime tool by its plain name from PATH, so each
+# tool also gets a symlink without the version.
+RUNTIME_TOOL_LINKS := $(BIN_DIR)/kwctl $(BIN_DIR)/sbom-utility $(BIN_DIR)/cosign $(BIN_DIR)/gh
+TOOLS := $(GOLANGCI_LINT) $(ACTIONLINT) $(SHELLCHECK) $(GOVULNCHECK) $(RUNTIME_TOOLS) $(RUNTIME_TOOL_LINKS)
 
 UNAME := $(shell uname -s)/$(shell uname -m)
 OS :=
@@ -80,28 +69,16 @@ ifeq ($(UNAME),Linux/x86_64)
 OS := linux
 ARCH := amd64
 UNAME_ARCH := x86_64
-SHA256SUM := sha256sum
-GH_PLATFORM := linux_amd64
-GH_EXTRACT := tar -xzOf
-GH_ARCHIVE := tar.gz
-else ifeq ($(UNAME),Darwin/arm64)
-OS := darwin
-ARCH := arm64
-UNAME_ARCH := aarch64
-SHA256SUM := shasum -a 256
-GH_PLATFORM := macOS_arm64
-GH_EXTRACT := unzip -p
-GH_ARCHIVE := zip
 endif
 PLATFORM := $(OS)_$(ARCH)
 
 # $(call install-tool,url,sha256,extract command): downloads url, checks its
 # sha256 and installs the file that the extract command writes to $@.tmp.
 define install-tool
-	@test -n "$(OS)" || { echo "Cannot install $(@F) on $(UNAME). The supported platforms are Linux/x86_64 and Darwin/arm64." >&2; exit 1; }
+	@test -n "$(OS)" || { echo "Cannot install $(@F) on $(UNAME). Only Linux/x86_64 is supported." >&2; exit 1; }
 	@mkdir -p $(@D)
 	curl -fsSL --retry 3 -o $@.download $(1)
-	echo "$(2)  $@.download" | $(SHA256SUM) -c -
+	echo "$(2)  $@.download" | sha256sum -c -
 	$(3)
 	chmod 755 $@.tmp
 	rm -f $@.download
@@ -155,11 +132,20 @@ check-config: build
 tools: $(TOOLS)
 
 .PHONY: runtime-tools
-runtime-tools: $(RUNTIME_TOOLS)
+runtime-tools: $(RUNTIME_TOOLS) $(RUNTIME_TOOL_LINKS)
+
+# The CI installs kwctl and cosign with their installer actions. gh comes with
+# the runner image. No installer action exists for sbom-utility.
+.PHONY: sbom-utility
+sbom-utility: $(SBOM_UTILITY) $(BIN_DIR)/sbom-utility
 
 # The repackager reads only GITHUB_OUTPUT and GITHUB_STEP_SUMMARY from the
 # environment. gh reads GH_TOKEN (or GITHUB_TOKEN) itself, and cosign reads
 # ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN itself.
+# The repackager runs kwctl, sbom-utility, cosign and gh from PATH. The
+# recipes put $(BIN_DIR) first in PATH, so the tools of "make runtime-tools"
+# come before other copies. If bin/ has no copy of a tool, the repackager runs
+# the copy that it finds next on the PATH. The CI works this way.
 # The other values come from these environment variables, and the recipes
 # pass them as flags: REPOSITORY, SHA, POLICY_NAME, POLICY_VERSION, DRY_RUN
 # and WORK_DIR. The recipes expand them in the shell, inside quotes, so make
@@ -167,12 +153,12 @@ runtime-tools: $(RUNTIME_TOOLS)
 # makes the repackager use a temporary directory. For a dry run, set
 # DRY_RUN=true, for example "DRY_RUN=true make repackage".
 .PHONY: discover
-discover: build $(GH)
-	$(BINARY) discover --repository "$$REPOSITORY" --policy-name "$$POLICY_NAME" --policy-version "$$POLICY_VERSION" --dry-run="$${DRY_RUN:-false}" --gh "$(GH)"
+discover: build
+	PATH="$(CURDIR)/$(BIN_DIR):$$PATH" $(BINARY) discover --repository "$$REPOSITORY" --policy-name "$$POLICY_NAME" --policy-version "$$POLICY_VERSION" --dry-run="$${DRY_RUN:-false}"
 
 .PHONY: repackage
-repackage: build $(RUNTIME_TOOLS)
-	$(BINARY) repackage --repository "$$REPOSITORY" --sha "$$SHA" --policy-name "$$POLICY_NAME" --policy-version "$$POLICY_VERSION" --work-dir "$$WORK_DIR" --dry-run="$${DRY_RUN:-false}" --kwctl "$(KWCTL)" --sbom-utility "$(SBOM_UTILITY)" --cosign "$(COSIGN)" --gh "$(GH)"
+repackage: build
+	PATH="$(CURDIR)/$(BIN_DIR):$$PATH" $(BINARY) repackage --repository "$$REPOSITORY" --sha "$$SHA" --policy-name "$$POLICY_NAME" --policy-version "$$POLICY_VERSION" --work-dir "$$WORK_DIR" --dry-run="$${DRY_RUN:-false}"
 
 $(GOLANGCI_LINT):
 	$(call install-tool,https://github.com/golangci/golangci-lint/releases/download/$(GOLANGCI_LINT_VERSION)/golangci-lint-$(GOLANGCI_LINT_VERSION:v%=%)-$(OS)-$(ARCH).tar.gz,$(GOLANGCI_LINT_SHA256_$(PLATFORM)),tar -xzOf $@.download golangci-lint-$(GOLANGCI_LINT_VERSION:v%=%)-$(OS)-$(ARCH)/golangci-lint > $@.tmp)
@@ -193,7 +179,21 @@ $(COSIGN):
 	$(call install-tool,https://github.com/sigstore/cosign/releases/download/$(COSIGN_VERSION)/cosign-$(OS)-$(ARCH),$(COSIGN_SHA256_$(PLATFORM)),cp $@.download $@.tmp)
 
 $(GH):
-	$(call install-tool,https://github.com/cli/cli/releases/download/$(GH_VERSION)/gh_$(GH_VERSION:v%=%)_$(GH_PLATFORM).$(GH_ARCHIVE),$(GH_SHA256_$(PLATFORM)),$(GH_EXTRACT) $@.download gh_$(GH_VERSION:v%=%)_$(GH_PLATFORM)/bin/gh > $@.tmp)
+	$(call install-tool,https://github.com/cli/cli/releases/download/$(GH_VERSION)/gh_$(GH_VERSION:v%=%)_$(PLATFORM).tar.gz,$(GH_SHA256_$(PLATFORM)),tar -xzOf $@.download gh_$(GH_VERSION:v%=%)_$(PLATFORM)/bin/gh > $@.tmp)
+
+$(BIN_DIR)/kwctl: $(KWCTL)
+$(BIN_DIR)/sbom-utility: $(SBOM_UTILITY)
+$(BIN_DIR)/cosign: $(COSIGN)
+$(BIN_DIR)/gh: $(GH)
+
+# make reads the time of the file that a symlink points to. If a pin goes back
+# to an older version that is still in $(BIN_DIR), that file is older than the
+# symlink target. FORCE makes the recipe run every time.
+$(RUNTIME_TOOL_LINKS): FORCE
+	ln -sfn $(notdir $(filter-out FORCE,$^)) $@
+
+.PHONY: FORCE
+FORCE:
 
 # go install always names the binary govulncheck. The recipe installs it into
 # a temporary directory and renames it, so $(BIN_DIR) gets only the file with

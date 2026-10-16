@@ -16,8 +16,6 @@ func TestCLI(t *testing.T) {
 		{name: "check-config without the file", args: []string{"check-config", "--config", "missing.yaml"}, wantErr: "missing.yaml"},
 		{name: "repackage without flags", args: []string{"repackage", "--config", "testdata/config.yaml"},
 			wantErr: "these flags are required and must not be empty: --repository, --sha, --policy-name, --policy-version"},
-		{name: "repackage with an empty tool", args: []string{"repackage", "--config", "testdata/config.yaml", "--repository", "a/b", "--sha", testSHA,
-			"--policy-name", "p", "--policy-version", "1.0.0", "--kwctl", " "}, wantErr: "must not be empty: --kwctl"},
 		{name: "repackage with a short sha", args: []string{"repackage", "--config", "testdata/config.yaml", "--repository", "a/b", "--sha", "abc123",
 			"--policy-name", "p", "--policy-version", "1.0.0"}, wantErr: "is not a full commit SHA"},
 		{name: "discover without flags", args: []string{"discover", "--config", "testdata/config.yaml"}, wantErr: "must not be empty: --repository"},

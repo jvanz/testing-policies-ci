@@ -253,10 +253,6 @@ Flags:
 | `--policy-version` | `discover`, `repackage` | Required for `repackage`. The version without the `v` prefix, for example `1.0.13`. For `discover`, it needs `--policy-name` |
 | `--dry-run` | `discover`, `repackage` | `repackage` pushes, signs and publishes nothing, but runs every check that only reads. `discover` marks the job summary as a dry run |
 | `--work-dir` | `repackage` | Keep the files of the run in this directory. Without it, the program uses a temporary directory and removes it at the end |
-| `--kwctl` | `repackage` | Path of the `kwctl` program. The default is `kwctl`, the program of that name on the `PATH` |
-| `--sbom-utility` | `repackage` | Path of the `sbom-utility` program. The default is `sbom-utility`, the program of that name on the `PATH` |
-| `--cosign` | `repackage` | Path of the `cosign` program. The default is `cosign`, the program of that name on the `PATH` |
-| `--gh` | `discover`, `repackage` | Path of the `gh` program. The default is `gh`, the program of that name on the `PATH` |
 
 A required flag must not be empty. The program reads no flag value from the
 environment. It reads only these environment variables:
@@ -278,14 +274,15 @@ private repository and every write need a token with write access. `gh`
 changes the control characters in each JSON response, for example in the
 upstream release notes, and the program accepts this change.
 
-The program runs `kwctl`, `sbom-utility`, `cosign` and `gh`. By default, it
-finds them on the `PATH`. The flags `--kwctl`, `--sbom-utility`, `--cosign`
-and `--gh` give other paths. The program does not make sure that a tool is
-installed before the run. A missing tool stops the run at the first step
-that needs it. The targets `make discover` and `make repackage` install the
-pinned tools into `bin/` and pass their paths with these flags. `kwctl` and
-`cosign` use the Docker credentials of the computer to read and write the
-registries. They read `DOCKER_CONFIG`.
+The program runs `kwctl`, `sbom-utility`, `cosign` and `gh`. It finds them
+on the `PATH`. The program does not make sure that a tool is installed
+before the run. A missing tool stops the run at the first step that needs
+it. The targets `make discover` and `make repackage` put `bin/` first on the
+`PATH`. Thus the tools that `make runtime-tools` installs into `bin/` come
+before other copies. In the CI, the installer actions install kwctl and
+cosign. `make sbom-utility` installs sbom-utility. gh comes with the runner
+image. `kwctl` and `cosign` use the Docker credentials of the computer to
+read and write the registries. They read `DOCKER_CONFIG`.
 
 The program runs `cosign` to sign and to verify. To sign, `cosign` gets an
 ID token from GitHub Actions. It reads `ACTIONS_ID_TOKEN_REQUEST_URL` and
@@ -538,9 +535,10 @@ A run on another branch fails. This is also true for a dry run.
 
 ### On your computer
 
-You need Go, `make`, `curl`, `tar`, `unzip`, and `sha256sum` (or `shasum` on
-macOS). The CI calls the same `make` targets, so a local run uses the same
-tools as the CI.
+You need Linux on x86_64, Go, `make`, `curl`, `tar`, `unzip`, and
+`sha256sum`. The CI calls the same `make` targets, but it installs kwctl
+and cosign with their installer actions. The workflow pins the same versions
+as the `Makefile`.
 
 ```sh
 make build         # writes bin/repackager
@@ -554,6 +552,7 @@ make mod-check     # fails if go mod tidy would change go.mod or go.sum
 make vulncheck     # runs govulncheck, which needs network access
 make tools         # installs every tool into bin/
 make runtime-tools # installs only kwctl, sbom-utility, cosign and gh into bin/
+make sbom-utility  # installs only sbom-utility into bin/
 ```
 
 A target that needs a tool installs it into `bin/` first. `make` downloads
@@ -562,11 +561,14 @@ the binary. The file name of each tool has its version, for example
 `bin/cosign-<version>`. `make` downloads again only when the file of the pinned
 version is missing. Thus a new version installs again, but a new checksum
 for the same version does not. The tools are golangci-lint, actionlint,
-shellcheck, kwctl, sbom-utility, cosign and gh. Only Linux on x86_64 and macOS
-on arm64 are supported.
+shellcheck, kwctl, sbom-utility, cosign and gh. Only Linux on x86_64 is
+supported. `make` also creates a symlink without the version for each of
+kwctl, sbom-utility, cosign and gh, for example `bin/cosign`. The
+`repackager` finds the tools on the `PATH` by these names.
 
-The targets call each tool by its path in `bin/`, which includes the
-version. These `make` variables hold the paths:
+The targets call golangci-lint, actionlint, shellcheck and govulncheck by
+their paths in `bin/`, which include the version. These `make` variables hold
+the paths:
 
 | Variable | Tool |
 |---|---|
@@ -579,7 +581,7 @@ version. These `make` variables hold the paths:
 | `COSIGN` | cosign |
 | `GH` | gh |
 
-To see the paths, run `make -n lint actionlint vulncheck repackage`. The
+To see the paths, run `make -n lint actionlint vulncheck runtime-tools`. The
 command prints the recipes and does not run them. After a version change,
 the file of the old version stays in `bin/`. Delete it by hand.
 
@@ -603,9 +605,7 @@ flags:
 | `DRY_RUN` | `--dry-run` | `discover`, `repackage`. Optional. The default is `false` |
 | `WORK_DIR` | `--work-dir` | `repackage`. Optional |
 
-The `repackage` target also passes `--kwctl`, `--sbom-utility`, `--cosign`
-and `--gh` with the paths of the pinned tools in `bin/`. The `discover`
-target passes `--gh`.
+The two targets run the `repackager` with `bin/` first on the `PATH`.
 
 The recipes expand each variable in the shell and put it in quotes. Thus
 `make` does not change a value, and the shell does not split it.
@@ -620,25 +620,22 @@ echo "$GH_TOKEN" | docker login ghcr.io -u <user> --password-stdin
 # Build the program and install kwctl, sbom-utility, cosign and gh into bin/
 make build runtime-tools
 
-# Find the releases that need a repackaging. Replace <version> with the
-# version that the Makefile pins.
+# Put the pinned tools of bin/ first on the PATH for the commands below
+export PATH="$PWD/bin:$PATH"
+
+# Find the releases that need a repackaging
 bin/repackager discover --repository rancher/suse-security-policies \
-  --policy-name pod-privileged-policy --gh bin/gh-<version>
+  --policy-name pod-privileged-policy
 
 # Run every step for one of them, without writes
 DRY_RUN=true REPOSITORY=rancher/suse-security-policies SHA="$(git rev-parse HEAD)" \
   POLICY_NAME=pod-privileged-policy POLICY_VERSION=1.0.13 \
   make repackage
 
-# The same with the program, and keep the files of the run in work/.
-# Replace each <version> with the version that the Makefile pins. Without
-# --kwctl, --sbom-utility, --cosign and --gh, the program runs the tools of
-# these names on the PATH.
+# The same with the program, and keep the files of the run in work/
 bin/repackager repackage --dry-run \
   --repository rancher/suse-security-policies --sha "$(git rev-parse HEAD)" \
   --policy-name pod-privileged-policy --policy-version 1.0.13 \
-  --kwctl bin/kwctl-<version> --sbom-utility bin/sbom-utility-<version> \
-  --cosign bin/cosign-<version> --gh bin/gh-<version> \
   --work-dir work
 ```
 
@@ -666,10 +663,12 @@ value is missing.
 ### Updating the pinned tools
 
 The `Makefile` pins the version of each tool, and the sha256 of its release
-asset for each supported platform. No other file pins a tool. Renovate
-updates each version and its checksums in the same pull request. A
-`# renovate:` comment on the line above each value tells Renovate where the
-tool comes from:
+asset. The workflow `sync-upstream-releases.yaml` also pins the versions of
+kwctl and cosign, in the `KWCTL_VERSION` and `COSIGN_VERSION` variables of the
+`repackage` job. The installer actions and the version check read these
+variables. For the `Makefile`, Renovate updates each version and its checksum
+in the same pull request. A `# renovate:` comment on the line above each value
+tells Renovate where the tool comes from:
 
 - The comment above a version names the GitHub repository of the tool.
   Renovate looks for a newer release there.
@@ -720,9 +719,9 @@ annotations. It never exports the rest of the metadata and never reads it
 back. Then it makes sure that nothing else changed and that the result
 contains the new values.
 
-The `Makefile` pins kwctl to `v1.39.0-rc.1`, the first build with these
-behaviors. When the stable `v1.39.0` release is available, change the pin to
-that release.
+The `Makefile` and the workflow pin kwctl to `v1.39.0-rc.1`, the first
+build with these behaviors. When the stable `v1.39.0` release is available,
+change both pins to that release.
 
 ## Known limitations
 

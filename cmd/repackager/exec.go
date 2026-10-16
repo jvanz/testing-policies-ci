@@ -12,6 +12,14 @@ import (
 	"strings"
 )
 
+// The programs must be on the PATH.
+const (
+	kwctl       = "kwctl"
+	sbomUtility = "sbom-utility"
+	cosign      = "cosign"
+	gh          = "gh"
+)
+
 // run returns the stdout of a tool. It also returns the stdout of a tool
 // that failed, because sbom-utility prints its findings there.
 var run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
