@@ -1,0 +1,35 @@
+package main
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestCLI(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantOut string
+		wantErr string
+	}{
+		{name: "check-config", args: []string{"check-config", "--config", "../../config.yaml"}, wantOut: "../../config.yaml is valid\n"},
+		{name: "check-config without the file", args: []string{"check-config", "--config", "missing.yaml"}, wantErr: "missing.yaml"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t, "")
+			out, err := execute(t, tt.args...)
+			if tt.wantErr == "" && err != nil {
+				t.Fatalf("the command failed: %v", err)
+			} else if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Fatalf("the command returned the error %v, but the test expects an error with %q", err, tt.wantErr)
+			}
+			if out != tt.wantOut {
+				t.Errorf("stdout is %q, expected %q", out, tt.wantOut)
+			}
+			if len(f.calls) != 0 {
+				t.Errorf("the command ran tools: %q", f.calls)
+			}
+		})
+	}
+}
