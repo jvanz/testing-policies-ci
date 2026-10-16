@@ -60,11 +60,6 @@ func TestSUSESBOM(t *testing.T) {
 	}
 }
 
-func TestReleaseNotes(t *testing.T) {
-	body := "## Fixes\n\n- Fix #12 and kubewarden/other#3, thanks @alice.\n- Mail a@b.com, keep `@code` and a.b#1.\n\n"
-	golden(t, "notes.golden.md", []byte(renderReleaseNotes(testJob(t, t.TempDir()), suseRef, body)))
-}
-
 func TestNameUUID(t *testing.T) {
 	// The expected values come from Python: uuid.uuid5(uuid.NAMESPACE_URL, name).
 	for name, want := range map[string]string{

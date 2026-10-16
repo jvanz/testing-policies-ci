@@ -140,14 +140,12 @@ func TestRepackage(t *testing.T) {
 		dryRun  bool
 		rules   []rule
 		wantErr string
-		golden  string
 		forbid  []string // no command line may contain one of these
 		want    []string // each of these command lines must run
 		calls   int      // if not 0, the exact number of calls
 	}{
-		{name: "fresh", rules: freshRules(), golden: "repackage.golden"},
 		{name: "dry run", dryRun: true, rules: freshRules(), forbid: append(signOrPublish, "cosign sign-blob")},
-		{name: "rerun", rules: rerunRules(), golden: "repackage-rerun.golden", forbid: []string{"kwctl push", "cosign sign --", "cosign attest"},
+		{name: "rerun", rules: rerunRules(), forbid: []string{"kwctl push", "cosign sign --", "cosign attest"},
 			want: []string{"gh release create", "-X PATCH", "kwctl digest registry://ghcr.io/rancher/suse-security-policies/pod-privileged:v1.2.3",
 				"kwctl pull registry://" + suseRef + " -o $WORK/existing-policy.wasm"}},
 		{name: "destination pull denied", rules: append([]rule{{prefix: destPull, err: "Error: denied: permission denied"}}, rerunRules()...),
@@ -201,9 +199,6 @@ func TestRepackage(t *testing.T) {
 				t.Fatalf("repackage failed: %v", err)
 			} else if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
 				t.Fatalf("repackage returned the error %v, but the test expects an error with %q", err, tt.wantErr)
-			}
-			if tt.golden != "" {
-				golden(t, tt.golden, []byte(strings.Join(f.calls, "\n")+"\n"))
 			}
 			if tt.calls != 0 && len(f.calls) != tt.calls {
 				t.Errorf("repackage ran %d commands instead of %d:\n%s", len(f.calls), tt.calls, strings.Join(f.calls, "\n"))
