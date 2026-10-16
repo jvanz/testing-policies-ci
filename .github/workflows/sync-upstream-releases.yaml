@@ -1,0 +1,144 @@
+name: Sync upstream policy releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      policy-name:
+        description: "Repackage only this policy, for example 'pod-privileged-policy'. Leave empty for all policies."
+        required: false
+        type: string
+        default: ""
+      policy-version:
+        description: "Pin the version to repackage, without the 'v' prefix. Requires policy-name."
+        required: false
+        type: string
+        default: ""
+      dry-run:
+        description: "Run every check that only reads, but push, sign and release nothing. Runs only on main."
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+# Two real runs would race to create the same tag, so they queue and are
+# never cancelled halfway through publishing. A dry run writes nothing, so it
+# has its own group.
+concurrency:
+  group: sync-upstream-releases-${{ inputs.dry-run && 'dry' || 'real' }}
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Discover releases to repackage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+      count: ${{ steps.discover.outputs.count }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # Any collaborator can push a branch and start this workflow from it, so
+      # only main can run it. This is also true for a dry run. The repackage
+      # job has write permissions and an id-token in a dry run too, because
+      # permissions cannot depend on an input. The repackage job checks the
+      # same condition, and the repackager verifies the signatures against the
+      # identity of the main branch.
+      - name: Refuse to run outside the main branch
+        if: github.ref != 'refs/heads/main'
+        env:
+          REF: ${{ github.ref }}
+        run: echo "::error::This workflow runs only on refs/heads/main, also for a dry run. This run is on '${REF}'." && exit 1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build the repackager
+        run: make build
+
+      - name: Discover upstream releases without a matching release here
+        id: discover
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          POLICY_NAME: ${{ inputs.policy-name }}
+          POLICY_VERSION: ${{ inputs.policy-version }}
+          DRY_RUN: ${{ inputs.dry-run && 'true' || 'false' }}
+        run: make discover
+
+  # The release is published last. The repository uses immutable releases, so
+  # after publication nobody can change the assets or reuse the tag. Signing
+  # comes after every check, so a failed run signs nothing that did not pass.
+  # In a dry run, the repackager pushes, signs and releases nothing.
+  #
+  # Do not move this job into a reusable workflow. The signing certificate
+  # names the workflow file, and a reusable workflow can be called from other
+  # repositories and branches with their own code. Without a workflow_call
+  # trigger, only a run in this repository signs with its identity.
+  repackage:
+    # GitHub does not expand the matrix of a skipped job, so a skipped job
+    # shows this expression as its name.
+    name: ${{ matrix.policy.tag }}
+    needs: discover
+    if: github.ref == 'refs/heads/main' && needs.discover.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: repackage-${{ inputs.dry-run && 'dry' || 'real' }}-${{ matrix.policy.tag }}
+      cancel-in-progress: false
+    permissions:
+      # Create the GitHub release and its tag
+      contents: write
+      # Push to the destination OCI registry
+      packages: write
+      # Sigstore keyless signing
+      id-token: write
+    strategy:
+      fail-fast: false
+      # Stay clear of the GitHub API and registry rate limits.
+      max-parallel: 5
+      matrix:
+        policy: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # Any job on main can write a cache entry, and this job signs, so it
+      # uses no cache.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build the repackager and install its tools
+        run: make build runtime-tools
+
+      - name: Log in to the container registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The matrix values come in through the environment, never inline, so
+      # no matrix value can change the shell command. The step runs every
+      # step for one policy in one process.
+      - name: Repackage the policy
+        timeout-minutes: 25
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          POLICY_NAME: ${{ matrix.policy.policy_name }}
+          POLICY_VERSION: ${{ matrix.policy.version }}
+          DRY_RUN: ${{ inputs.dry-run && 'true' || 'false' }}
+        run: make repackage
