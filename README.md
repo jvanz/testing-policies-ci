@@ -52,10 +52,14 @@ signing and distribution problems here.
 - Only the `main` branch publishes. A run from another branch stops before
   discovery. This is also true for a dry run. The `repackage` job has write
   permissions and `id-token: write` in a dry run too, because GitHub Actions
-  cannot set permissions from an input. The workflow checks every signature
-  that it makes against the exact identity
+  cannot set permissions from an input. The program gets the signing identity
+  from the `GITHUB_WORKFLOW_REF` variable that GitHub Actions sets. This
+  variable must name a workflow file of this repository on the `main` branch.
+  Otherwise the program stops before it signs anything. The identity is
+  `https://github.com/` followed by this value, for example
   `https://github.com/rancher/suse-security-policies/.github/workflows/sync-upstream-releases.yaml@refs/heads/main`.
-  A signature from another branch fails that check.
+  The workflow checks every signature that it makes against this exact
+  identity. A signature from another branch fails that check.
 - The signing job is in `sync-upstream-releases.yaml`, not in a reusable
   workflow. The signing certificate names the workflow file that holds the
   job. Any repository can call a reusable workflow of a public repository, and
@@ -261,6 +265,7 @@ environment. It reads only these environment variables:
 |---|---|
 | `GITHUB_OUTPUT` | The file of the step outputs. GitHub Actions sets it. Without it, `discover` writes no outputs |
 | `GITHUB_STEP_SUMMARY` | The file of the job summary. GitHub Actions sets it. Without it, the program writes the summary to the log or to stdout |
+| `GITHUB_WORKFLOW_REF` | The workflow that runs the program, for example `rancher/suse-security-policies/.github/workflows/sync-upstream-releases.yaml@refs/heads/main`. GitHub Actions sets it. `repackage` signs and verifies with the identity `https://github.com/` followed by this value. Without `--dry-run`, `repackage` stops before the first step if the variable is not set or does not name a workflow file of this repository on the `main` branch |
 
 The temporary directory follows `TMPDIR`. The tools that the program runs get
 the whole environment. `GH_HOST`, `GH_REPO`, `GH_FORCE_TTY`, `CLICOLOR_FORCE`
@@ -639,9 +644,10 @@ bin/repackager repackage --dry-run \
   --work-dir work
 ```
 
-On your computer, always run these commands as a dry run. Without
-`DRY_RUN=true` or `--dry-run`, they push the module, and then the signing
-fails. The program gets its Sigstore identity only from GitHub Actions.
+On your computer, always run these commands as a dry run. The program gets
+its Sigstore identity only from GitHub Actions. Without `DRY_RUN=true` or
+`--dry-run`, the program stops before the first step if `GITHUB_WORKFLOW_REF`
+is not set.
 
 ## Configuration
 

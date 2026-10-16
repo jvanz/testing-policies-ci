@@ -139,12 +139,24 @@ func TestRepackage(t *testing.T) {
 		name    string
 		dryRun  bool
 		rules   []rule
+		env     map[string]string // set after newFake
 		wantErr string
 		forbid  []string // no command line may contain one of these
 		want    []string // each of these command lines must run
 		calls   int      // if not 0, the exact number of calls
+		noCalls bool     // no command may run
 	}{
 		{name: "dry run", dryRun: true, rules: freshRules(), forbid: append(signOrPublish, "cosign sign-blob")},
+		{name: "dry run without a workflow ref", dryRun: true, rules: freshRules(), env: map[string]string{"GITHUB_WORKFLOW_REF": ""},
+			forbid: append(signOrPublish, "cosign sign-blob")},
+		{name: "no workflow ref", rules: freshRules(), env: map[string]string{"GITHUB_WORKFLOW_REF": ""},
+			wantErr: "GITHUB_WORKFLOW_REF is not set", noCalls: true},
+		{name: "workflow of another repository", rules: freshRules(),
+			env:     map[string]string{"GITHUB_WORKFLOW_REF": "other/suse-security-policies/.github/workflows/sync-upstream-releases.yaml@refs/heads/main"},
+			wantErr: "is not a workflow on the main branch of rancher/suse-security-policies", noCalls: true},
+		{name: "workflow on another branch", rules: freshRules(),
+			env:     map[string]string{"GITHUB_WORKFLOW_REF": "rancher/suse-security-policies/.github/workflows/sync-upstream-releases.yaml@refs/heads/feature"},
+			wantErr: "is not a workflow on the main branch of rancher/suse-security-policies", noCalls: true},
 		{name: "rerun", rules: rerunRules(), forbid: []string{"kwctl push", "cosign sign --", "cosign attest"},
 			want: []string{"gh release create", "-X PATCH", "kwctl digest registry://ghcr.io/rancher/suse-security-policies/pod-privileged:v1.2.3",
 				"kwctl pull registry://" + suseRef + " -o $WORK/existing-policy.wasm",
@@ -190,6 +202,9 @@ func TestRepackage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			work := t.TempDir()
 			f := newFake(t, work, tt.rules...)
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
 			args := []string{"repackage", "--config", "testdata/config.yaml", "--repository", "rancher/suse-security-policies", "--sha", testSHA,
 				"--policy-name", "pod-privileged-policy", "--policy-version", "1.2.3", "--work-dir", work}
 			if tt.dryRun {
@@ -200,6 +215,9 @@ func TestRepackage(t *testing.T) {
 				t.Fatalf("repackage failed: %v", err)
 			} else if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
 				t.Fatalf("repackage returned the error %v, but the test expects an error with %q", err, tt.wantErr)
+			}
+			if tt.noCalls && len(f.calls) != 0 {
+				t.Errorf("repackage ran %d commands instead of none:\n%s", len(f.calls), strings.Join(f.calls, "\n"))
 			}
 			if tt.calls != 0 && len(f.calls) != tt.calls {
 				t.Errorf("repackage ran %d commands instead of %d:\n%s", len(f.calls), tt.calls, strings.Join(f.calls, "\n"))

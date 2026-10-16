@@ -37,7 +37,9 @@ type fake struct {
 
 // newFake replaces run until the test ends. It also discards the log and
 // clears the GitHub Actions files, so that a test run in a workflow does not
-// write to them.
+// write to them. It sets GITHUB_WORKFLOW_REF to the workflow of this
+// repository, so that the signing identity does not depend on the workflow
+// that runs the test.
 func newFake(t *testing.T, work string, rules ...rule) *fake {
 	f := &fake{t: t, work: work, rules: rules}
 	oldRun, oldLog := run, logOut
@@ -45,6 +47,7 @@ func newFake(t *testing.T, work string, rules ...rule) *fake {
 	t.Cleanup(func() { run, logOut = oldRun, oldLog })
 	t.Setenv("GITHUB_OUTPUT", "")
 	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("GITHUB_WORKFLOW_REF", "rancher/suse-security-policies/.github/workflows/sync-upstream-releases.yaml@refs/heads/main")
 	return f
 }
 

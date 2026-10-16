@@ -46,8 +46,9 @@ jobs:
       # only main can run it. This is also true for a dry run. The repackage
       # job has write permissions and an id-token in a dry run too, because
       # permissions cannot depend on an input. The repackage job checks the
-      # same condition, and the repackager verifies the signatures against the
-      # identity of the main branch.
+      # same condition. The repackager also stops if GITHUB_WORKFLOW_REF does
+      # not name a workflow file of this repository on the main branch, and it
+      # verifies the signatures against that identity.
       - name: Refuse to run outside the main branch
         if: github.ref != 'refs/heads/main'
         env:

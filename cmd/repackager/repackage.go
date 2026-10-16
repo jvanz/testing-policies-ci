@@ -67,6 +67,7 @@ type repackageData struct {
 	upstream, upstreamRoot                                                any
 	upstreamDigest, upstreamRef, immutableRef                             string
 	destRef, sourceCommit, sourceSHA256, upstreamNamespace, suseNamespace string
+	ownIdentity                                                           []string
 }
 
 func (d *repackageData) path(name string) string { return filepath.Join(d.workDir, name) }
@@ -79,11 +80,19 @@ func (d *repackageData) upstreamIdentity() []string {
 	}
 }
 
-func (d *repackageData) ownIdentity() []string {
-	return []string{
-		"--certificate-identity", "https://github.com/" + d.repo + "/.github/workflows/sync-upstream-releases.yaml@refs/heads/main",
-		"--certificate-oidc-issuer", ownOIDCIssuer,
+// signingIdentity reads GITHUB_WORKFLOW_REF, for example
+// "owner/repo/.github/workflows/file.yaml@refs/heads/main". For a workflow
+// that is not reusable, this value is equal to the job_workflow_ref that
+// Fulcio writes into the certificate.
+func signingIdentity(repo string) ([]string, error) {
+	ref := os.Getenv("GITHUB_WORKFLOW_REF")
+	if ref == "" {
+		return nil, errors.New("GITHUB_WORKFLOW_REF is not set, so the signing identity is not known. Run the program in a GitHub Actions workflow, or use --dry-run")
 	}
+	if !strings.HasPrefix(ref, repo+"/.github/workflows/") || !strings.HasSuffix(ref, "@refs/heads/main") {
+		return nil, fmt.Errorf("GITHUB_WORKFLOW_REF %q is not a workflow on the main branch of %s", ref, repo)
+	}
+	return []string{"--certificate-identity", "https://github.com/" + ref, "--certificate-oidc-issuer", ownOIDCIssuer}, nil
 }
 
 func verifyLegacySignature(ctx context.Context, ref string, identity []string) ([]byte, error) {
@@ -111,8 +120,13 @@ func repackage(ctx context.Context, d *repackageData) error {
 	if !shaPattern.MatchString(d.sha) {
 		return fmt.Errorf("repackage: --sha %q is not a full commit SHA of 40 lowercase hex characters", d.sha)
 	}
-	d.tag = d.name + "/v" + d.version
 	var err error
+	if !d.dryRun {
+		if d.ownIdentity, err = signingIdentity(d.repo); err != nil {
+			return fmt.Errorf("repackage: %w", err)
+		}
+	}
+	d.tag = d.name + "/v" + d.version
 	if d.workDir == "" {
 		d.workDir, err = os.MkdirTemp("", "repackager-*")
 		defer os.RemoveAll(d.workDir)
@@ -391,7 +405,7 @@ func sign(ctx context.Context, d *repackageData) error {
 	defer logf("::endgroup::")
 	ref, wasm, sbom := d.immutableRef, d.path(suseWasmName), d.path(suseSBOMName)
 	wasmBundle, sbomBundle := d.path(suseWasmBundleName), d.path(suseSBOMBundleName)
-	own := d.ownIdentity()
+	own := d.ownIdentity
 	// An attestation of an earlier run can hold an older SBOM. This check
 	// runs before any write, so that a stale attestation changes nothing.
 	if out, err := verifyAttestation(ctx, ref, "spdxjson", own); err == nil {
