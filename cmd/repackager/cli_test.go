@@ -14,6 +14,7 @@ func TestCLI(t *testing.T) {
 	}{
 		{name: "check-config", args: []string{"check-config", "--config", "../../config.yaml"}, wantOut: "../../config.yaml is valid\n"},
 		{name: "check-config without the file", args: []string{"check-config", "--config", "missing.yaml"}, wantErr: "missing.yaml"},
+		{name: "discover without flags", args: []string{"discover", "--config", "../../config.yaml"}, wantErr: "must not be empty: --repository"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

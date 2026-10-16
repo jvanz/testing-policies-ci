@@ -1,0 +1,144 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func discoverRules() []rule {
+	release := func(tag, extra string) string {
+		return `{"tag_name":"` + tag + `","html_url":"https://github.com/kubewarden/policies/releases/tag/` + tag + `"` + extra + `}`
+	}
+	metadata := func(name, id, version string) rule {
+		return rule{prefix: "gh api --hostname github.com -H Accept: application/vnd.github.raw --allow-escape-sequences repos/kubewarden/policies/contents/policies/" +
+			name + "/metadata.yml?ref=" + name + "%2Fv" + version,
+			out: "annotations:\n  io.kubewarden.policy.ociUrl: ghcr.io/kubewarden/policies/" + id + "\n  io.kubewarden.policy.version: " + version + "\n"}
+	}
+	// gh writes the pages of --paginate --slurp as a list of lists.
+	upstream := "[[" + strings.Join([]string{
+		release("pod-privileged-policy/v1.9.0", ""),
+		release("pod-privileged-policy/v1.10.0", ""),
+		release("pod-privileged-policy/v1.11.0-rc1", ""),
+		release("pod-privileged-policy/v2.0.0", `,"prerelease":true`),
+		release("pod-privileged-policy/v3.0.0", `,"draft":true`),
+		release("sleeping-policy/v1.0.0", ""),
+	}, ",") + "],[" + strings.Join([]string{
+		release("capabilities-psp-policy/v1.0.0", ""),
+		release("safe-labels-policy/v2.0.0", ""),
+	}, ",") + "]]"
+	// A draft is the remainder of a failed run, so it does not count as released.
+	dest := `[[{"tag_name":"safe-labels-policy/v2.0.0","draft":false},{"tag_name":"pod-privileged-policy/v1.10.0","draft":true}]]`
+	return []rule{
+		{prefix: "gh api --hostname github.com --paginate --slurp repos/kubewarden/policies/releases", out: upstream},
+		{prefix: "gh api --hostname github.com --paginate --slurp repos/rancher/suse-security-policies/releases", out: dest},
+		metadata("pod-privileged-policy", "pod-privileged", "1.10.0"),
+		metadata("pod-privileged-policy", "pod-privileged", "1.9.0"),
+		metadata("capabilities-psp-policy", "capabilities-psp", "1.0.0"),
+	}
+}
+
+func TestDiscover(t *testing.T) {
+	f := newFake(t, "", discoverRules()...)
+	output := filepath.Join(t.TempDir(), "output")
+	t.Setenv("GITHUB_OUTPUT", output)
+	stdout, err := execute(t, "discover", "--config", "../../config.yaml", "--repository", "rancher/suse-security-policies")
+	if err != nil {
+		t.Fatalf("discover failed: %v", err)
+	}
+	wantCalls := []string{
+		"gh api --hostname github.com --paginate --slurp repos/kubewarden/policies/releases",
+		"gh api --hostname github.com --paginate --slurp repos/rancher/suse-security-policies/releases",
+		"gh api --hostname github.com -H Accept: application/vnd.github.raw --allow-escape-sequences repos/kubewarden/policies/contents/policies/capabilities-psp-policy/metadata.yml?ref=capabilities-psp-policy%2Fv1.0.0",
+		"gh api --hostname github.com -H Accept: application/vnd.github.raw --allow-escape-sequences repos/kubewarden/policies/contents/policies/pod-privileged-policy/metadata.yml?ref=pod-privileged-policy%2Fv1.10.0",
+	}
+	if !slices.Equal(f.calls, wantCalls) {
+		t.Errorf("discover ran:\n%s\nexpected:\n%s", strings.Join(f.calls, "\n"), strings.Join(wantCalls, "\n"))
+	}
+	matrix := `[{"policy_id":"capabilities-psp","policy_name":"capabilities-psp-policy","tag":"capabilities-psp-policy/v1.0.0",` +
+		`"upstream_release_url":"https://github.com/kubewarden/policies/releases/tag/capabilities-psp-policy/v1.0.0","version":"1.0.0"},` +
+		`{"policy_id":"pod-privileged","policy_name":"pod-privileged-policy","tag":"pod-privileged-policy/v1.10.0",` +
+		`"upstream_release_url":"https://github.com/kubewarden/policies/releases/tag/pod-privileged-policy/v1.10.0","version":"1.10.0"}]`
+	if stdout != matrix+"\n" {
+		t.Errorf("stdout is %q, expected %q", stdout, matrix+"\n")
+	}
+	got, err := os.ReadFile(output)
+	if want := "matrix=" + matrix + "\ncount=2\n"; err != nil || string(got) != want {
+		t.Errorf("GITHUB_OUTPUT holds %q (error: %v), expected %q", got, err, want)
+	}
+}
+
+func TestDiscoverFilters(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantTags []string
+		wantErr  string
+	}{
+		{name: "policy name", args: []string{"--policy-name", "pod-privileged-policy"}, wantTags: []string{"pod-privileged-policy/v1.10.0"}},
+		{name: "older pinned version", args: []string{"--policy-name", "pod-privileged-policy", "--policy-version", "1.9.0"}, wantTags: []string{"pod-privileged-policy/v1.9.0"}},
+		{name: "already released", args: []string{"--policy-name", "safe-labels-policy"}, wantTags: []string{}},
+		{name: "prerelease version", args: []string{"--policy-name", "pod-privileged-policy", "--policy-version", "2.0.0"}, wantErr: "no upstream release matches"},
+		{name: "version without name", args: []string{"--policy-version", "1.9.0"}, wantErr: "needs a policy name"},
+		{name: "excluded policy", args: []string{"--policy-name", "sleeping-policy"}, wantErr: "excluded from publishing"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newFake(t, "", discoverRules()...)
+			stdout, err := execute(t, append([]string{"discover", "--config", "../../config.yaml", "--repository", "rancher/suse-security-policies"}, tt.args...)...)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("discover returned the error %v, but the test expects an error with %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("discover failed: %v", err)
+			}
+			var releases []map[string]string
+			if err := json.Unmarshal([]byte(stdout), &releases); err != nil {
+				t.Fatal(err)
+			}
+			var tags []string
+			for _, r := range releases {
+				tags = append(tags, r["tag"])
+			}
+			if !slices.Equal(tags, tt.wantTags) {
+				t.Errorf("discover found %q, expected %q", tags, tt.wantTags)
+			}
+		})
+	}
+}
+
+func TestDiscoverMissingMetadata(t *testing.T) {
+	missing := rule{prefix: "gh api --hostname github.com -H Accept: application/vnd.github.raw --allow-escape-sequences repos/kubewarden/policies/contents/policies/capabilities-psp-policy/",
+		err: "gh: Not Found (HTTP 404)"}
+	tests := []struct {
+		name, wantOut, wantErr string
+		args                   []string
+		rules                  []rule
+	}{
+		{name: "missing file skips the release", rules: append([]rule{missing}, discoverRules()...), wantOut: "pod-privileged-policy/v1.10.0"},
+		{name: "missing file of the asked policy", args: []string{"--policy-name", "capabilities-psp-policy"},
+			rules: append([]rule{missing}, discoverRules()...), wantErr: "HTTP 404"},
+		{name: "other error stops", rules: append([]rule{{prefix: missing.prefix, err: "gh: Server Error (HTTP 502)"}}, discoverRules()...), wantErr: "HTTP 502"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newFake(t, "", tt.rules...)
+			stdout, err := execute(t, append([]string{"discover", "--config", "../../config.yaml", "--repository", "rancher/suse-security-policies"}, tt.args...)...)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("discover returned the error %v, but the test expects an error with %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || strings.Contains(stdout, "capabilities-psp") || !strings.Contains(stdout, tt.wantOut) {
+				t.Errorf("discover returned %q (error: %v), expected only %q", stdout, err, tt.wantOut)
+			}
+		})
+	}
+}
