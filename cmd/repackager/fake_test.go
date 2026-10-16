@@ -22,9 +22,10 @@ var update = flag.Bool("update", false, "write the golden files in testdata agai
 type rule struct {
 	prefix string
 	out    string
-	err    string // if not empty, the call fails with this message
-	write  string // if not empty, written to the path after -o or --output
-	once   bool   // if true, the rule is removed after its first match
+	fn     func(work string) string // if not nil, gives the output at call time, in place of out
+	err    string                   // if not empty, the call fails with this message
+	write  string                   // if not empty, written to the path after -o or --output
+	once   bool                     // if true, the rule is removed after its first match
 }
 
 type fake struct {
@@ -75,10 +76,14 @@ func (f *fake) run(_ context.Context, name string, args ...string) ([]byte, erro
 			}
 		}
 	}
-	if r.err != "" {
-		return []byte(r.out), errors.New(r.err)
+	out := r.out
+	if r.fn != nil {
+		out = r.fn(f.work)
 	}
-	return []byte(r.out), nil
+	if r.err != "" {
+		return []byte(out), errors.New(r.err)
+	}
+	return []byte(out), nil
 }
 
 // execute runs the command line and returns what it wrote to stdout.

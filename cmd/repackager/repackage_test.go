@@ -1,7 +1,11 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -11,6 +15,7 @@ var (
 	testCommit     = strings.Repeat("c", 40)
 	upstreamDigest = "sha256:" + strings.Repeat("a", 64)
 	suseRef        = "ghcr.io/rancher/suse-security-policies/pod-privileged@sha256:" + strings.Repeat("b", 64)
+	spdxCheck      = "cosign verify-attestation " + suseRef + " --type spdxjson "
 )
 
 const (
@@ -20,6 +25,26 @@ const (
 	destPull  = "kwctl pull registry://ghcr.io/rancher/suse-security-policies/pod-privileged:v1.2.3 "
 	ownVerify = "cosign verify ghcr.io/rancher/"
 )
+
+// attested gives the output of cosign verify-attestation for an SPDX
+// attestation of the SBOM that the run wrote. If edit is not nil, it
+// changes the SBOM before the attestation is made. An error gives an empty
+// output, which the run reports as a different SBOM.
+func attested(edit func(sbom map[string]any)) func(work string) string {
+	return func(work string) string {
+		var sbom map[string]any
+		data, err := os.ReadFile(filepath.Join(work, suseSBOMName))
+		if err != nil || json.Unmarshal(data, &sbom) != nil {
+			return ""
+		}
+		if edit != nil {
+			edit(sbom)
+		}
+		statement, _ := json.Marshal(map[string]any{"_type": "https://in-toto.io/Statement/v0.1", "predicateType": "https://spdx.dev/Document", "predicate": sbom})
+		envelope, _ := json.Marshal(map[string]any{"payloadType": "application/vnd.in-toto+json", "payload": base64.StdEncoding.EncodeToString(statement), "signatures": []any{}})
+		return string(envelope) + "\n"
+	}
+}
 
 // rerunRules describe a run after an earlier run that pushed and signed the
 // module but did not publish the release.
@@ -74,6 +99,7 @@ annotations:
 		{prefix: "gh api --hostname github.com repos/kubewarden/policies/git/ref/tags/", out: `{"object":{"type":"tag","sha":"` + strings.Repeat("d", 40) + `"}}`},
 		{prefix: "gh api --hostname github.com repos/kubewarden/policies/git/tags/", out: `{"object":{"type":"commit","sha":"` + testCommit + `"}}`},
 		{prefix: "gh api --hostname github.com --allow-escape-sequences repos/kubewarden/policies/tarball/", out: "source archive"},
+		{prefix: spdxCheck, fn: attested(nil)},
 		{prefix: "cosign verify", out: "[]"},
 		{prefix: "cosign sign", out: ""},
 		{prefix: "cosign attest", out: ""},
@@ -152,6 +178,11 @@ func TestRepackage(t *testing.T) {
 			{prefix: "gh api --hostname github.com -X DELETE ", out: ""},
 		}, rerunRules()...), want: []string{"gh api --hostname github.com -X DELETE repos/rancher/suse-security-policies/releases/7"},
 			forbid: []string{"releases/9"}},
+		// An earlier run attested an SBOM with another tool name.
+		{name: "stale SBOM attestation", rules: append([]rule{{prefix: spdxCheck, fn: attested(func(sbom map[string]any) {
+			sbom["creationInfo"].(map[string]any)["creators"] = []any{"Organization: SUSE", "Tool: suse-security-policies-" + testSHA}
+		})}}, rerunRules()...), wantErr: "differs from the release SBOM",
+			forbid: []string{"cosign sign", "cosign attest", "gh release create", "-X PATCH", "-X DELETE"}},
 		{name: "published release in the list", rules: append([]rule{
 			{prefix: ownList, out: `[[{"tag_name":"` + testTag + `","draft":false,"id":8}]]`, once: true},
 		}, rerunRules()...), wantErr: "is already published", forbid: []string{"-X DELETE", "gh release create"}},

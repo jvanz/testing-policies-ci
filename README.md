@@ -318,8 +318,44 @@ whether an earlier run did it already. Then it reuses the result:
 The program generates the SUSE SBOM again in each run. If the attestation of
 an earlier run verifies, the program keeps it. The SBOM does not record the
 commit of `--sha`, so a run from another commit gives the same SBOM for the
-same artifact. The program does not compare the SBOM in the attestation with
-the SBOM of the release.
+same artifact. The program checks the SBOM attestation before the
+signatures, and it compares the SBOM in the attestation with the SBOM of the
+release. If they differ, the run stops before it writes to the registry.
+This happens when an earlier run used another version of the program, for
+example one that wrote another tool name into the SBOM.
+
+A stale SBOM attestation does not go away by itself. A person must delete it
+in GHCR and then start the run again:
+
+1. Find the digest of the attestation. Run `cosign tree` on the artifact
+   reference from the error. The attestation is the line that shows
+   `https://spdx.dev/Document artifacts via OCI referrer`, followed by the
+   reference and digest of the attestation.
+
+   ```sh
+   cosign tree ghcr.io/rancher/suse-security-policies/pod-privileged@sha256:<artifact digest>
+   ```
+
+2. Find the package version whose name is that digest. In the package name,
+   write the `/` as `%2F`. For a package of a user account, use
+   `/user/packages/...` instead of `/orgs/rancher/packages/...`.
+
+   ```sh
+   gh api --paginate /orgs/rancher/packages/container/suse-security-policies%2Fpod-privileged/versions \
+     --jq '.[] | select(.name == "sha256:<attestation digest>") | .id'
+   ```
+
+3. Delete that version:
+
+   ```sh
+   gh api -X DELETE /orgs/rancher/packages/container/suse-security-policies%2Fpod-privileged/versions/<id>
+   ```
+
+4. Start the workflow again for the release.
+
+The deletion removes the attestation from the registry only. Its entry in
+the public Rekor transparency log stays, because nobody can delete a Rekor
+entry.
 
 Before it creates the new draft release, the program deletes the old draft
 releases for the tag. It deletes only a release that the list of releases
@@ -418,9 +454,9 @@ the program makes sure that the release has an asset at that address. If
 this check fails, the run fails. The release is immutable then, so a person
 must fix it by hand.
 
-The program checks the signature and the attestation after it signs. It does
-not compare the SBOM in the attestation with the SUSE SBOM file of the
-release. See [Running a release again](#running-a-release-again).
+The program checks the signature and the attestation after it signs. It
+also makes sure that the SBOM in the attestation is equal to the SUSE SBOM
+file of the release. See [Running a release again](#running-a-release-again).
 
 ### Verifying a release
 

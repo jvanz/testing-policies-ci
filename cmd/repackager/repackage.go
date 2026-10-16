@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"maps"
@@ -297,10 +298,18 @@ func sign(ctx context.Context, j *job) error {
 	own := j.identity(true)
 	legacy, bundle := verifyArgs(ref, own)
 	spdx := append([]string{"verify-attestation", ref, "--type", "spdxjson"}, own...)
+	// An attestation of an earlier run can hold an older SBOM. This check
+	// runs before any write, so that a stale attestation changes nothing.
+	if out, err := run(ctx, cosign, spdx...); err == nil {
+		if err := sameSBOM(ref, out, sbom); err != nil {
+			return err
+		}
+	} else if _, err := run(ctx, cosign, "attest", "--yes", "--type", "spdxjson", "--predicate", sbom, ref); err != nil {
+		return err
+	}
 	for _, s := range [][2][]string{
 		{legacy, {"sign", "--yes", "--new-bundle-format=false", "--use-signing-config=false", ref}},
 		{bundle, {"sign", "--yes", "--use-signing-config=true", ref}},
-		{spdx, {"attest", "--yes", "--type", "spdxjson", "--predicate", sbom, ref}},
 	} {
 		if _, err := run(ctx, cosign, s[0]...); err != nil {
 			if _, err := run(ctx, cosign, s[1]...); err != nil {
@@ -315,11 +324,36 @@ func sign(ctx context.Context, j *job) error {
 		append([]string{"verify-blob", wasm, "--bundle", wasmBundle}, own...),
 		append([]string{"verify-blob", sbom, "--bundle", sbomBundle}, own...),
 	} {
-		if _, err := run(ctx, cosign, args...); err != nil {
+		out, err := run(ctx, cosign, args...)
+		if err == nil && slices.Equal(args, spdx) {
+			err = sameSBOM(ref, out, sbom)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// sameSBOM returns nil if one attestation in the output of cosign
+// verify-attestation holds the release SBOM. cosign prints one DSSE envelope
+// per line, and its payload is the in-toto statement.
+func sameSBOM(ref string, out []byte, sbom string) error {
+	want, err := readJSON(sbom)
+	for line := range bytes.Lines(out) {
+		envelope, _ := decode(line, nil)
+		payload, _ := base64.StdEncoding.DecodeString(str(envelope, "payload"))
+		statement, _ := decode(payload, nil)
+		got := get(statement, "predicate")
+		// Some cosign versions store the document as a JSON string.
+		if s, ok := got.(string); ok {
+			got, _ = decode([]byte(s), nil)
+		}
+		if err == nil && reflect.DeepEqual(got, want) {
+			return nil
+		}
+	}
+	return cmp.Or(err, fmt.Errorf("the SBOM attestation of %s differs from the release SBOM. A person must delete the old attestation and run again", ref))
 }
 
 // publish uploads to a draft first, because only a draft can change.
