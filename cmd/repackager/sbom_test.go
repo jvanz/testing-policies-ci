@@ -10,7 +10,7 @@ import (
 )
 
 func testJob(t *testing.T, work string) *job {
-	cfg, err := loadConfig("../../config.yaml")
+	cfg, err := loadConfig("testdata/config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

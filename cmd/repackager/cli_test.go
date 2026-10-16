@@ -14,13 +14,13 @@ func TestCLI(t *testing.T) {
 	}{
 		{name: "check-config", args: []string{"check-config", "--config", "../../config.yaml"}, wantOut: "../../config.yaml is valid\n"},
 		{name: "check-config without the file", args: []string{"check-config", "--config", "missing.yaml"}, wantErr: "missing.yaml"},
-		{name: "repackage without flags", args: []string{"repackage", "--config", "../../config.yaml"},
+		{name: "repackage without flags", args: []string{"repackage", "--config", "testdata/config.yaml"},
 			wantErr: "these flags are required and must not be empty: --repository, --sha, --policy-name, --policy-version"},
-		{name: "repackage with an empty tool", args: []string{"repackage", "--config", "../../config.yaml", "--repository", "a/b", "--sha", testSHA,
+		{name: "repackage with an empty tool", args: []string{"repackage", "--config", "testdata/config.yaml", "--repository", "a/b", "--sha", testSHA,
 			"--policy-name", "p", "--policy-version", "1.0.0", "--kwctl", " "}, wantErr: "must not be empty: --kwctl"},
-		{name: "repackage with a short sha", args: []string{"repackage", "--config", "../../config.yaml", "--repository", "a/b", "--sha", "abc123",
+		{name: "repackage with a short sha", args: []string{"repackage", "--config", "testdata/config.yaml", "--repository", "a/b", "--sha", "abc123",
 			"--policy-name", "p", "--policy-version", "1.0.0"}, wantErr: "is not a full commit SHA"},
-		{name: "discover without flags", args: []string{"discover", "--config", "../../config.yaml"}, wantErr: "must not be empty: --repository"},
+		{name: "discover without flags", args: []string{"discover", "--config", "testdata/config.yaml"}, wantErr: "must not be empty: --repository"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

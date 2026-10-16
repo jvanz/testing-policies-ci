@@ -45,7 +45,7 @@ func TestDiscover(t *testing.T) {
 	f := newFake(t, "", discoverRules()...)
 	output := filepath.Join(t.TempDir(), "output")
 	t.Setenv("GITHUB_OUTPUT", output)
-	stdout, err := execute(t, "discover", "--config", "../../config.yaml", "--repository", "rancher/suse-security-policies")
+	stdout, err := execute(t, "discover", "--config", "testdata/config.yaml", "--repository", "rancher/suse-security-policies")
 	if err != nil {
 		t.Fatalf("discover failed: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestDiscoverFilters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			newFake(t, "", discoverRules()...)
-			stdout, err := execute(t, append([]string{"discover", "--config", "../../config.yaml", "--repository", "rancher/suse-security-policies"}, tt.args...)...)
+			stdout, err := execute(t, append([]string{"discover", "--config", "testdata/config.yaml", "--repository", "rancher/suse-security-policies"}, tt.args...)...)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Errorf("discover returned the error %v, but the test expects an error with %q", err, tt.wantErr)
@@ -129,7 +129,7 @@ func TestDiscoverMissingMetadata(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			newFake(t, "", tt.rules...)
-			stdout, err := execute(t, append([]string{"discover", "--config", "../../config.yaml", "--repository", "rancher/suse-security-policies"}, tt.args...)...)
+			stdout, err := execute(t, append([]string{"discover", "--config", "testdata/config.yaml", "--repository", "rancher/suse-security-policies"}, tt.args...)...)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Errorf("discover returned the error %v, but the test expects an error with %q", err, tt.wantErr)

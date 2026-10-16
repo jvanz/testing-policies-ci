@@ -160,7 +160,7 @@ func TestRepackage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			work := t.TempDir()
 			f := newFake(t, work, tt.rules...)
-			args := []string{"repackage", "--config", "../../config.yaml", "--repository", "rancher/suse-security-policies", "--sha", testSHA,
+			args := []string{"repackage", "--config", "testdata/config.yaml", "--repository", "rancher/suse-security-policies", "--sha", testSHA,
 				"--policy-name", "pod-privileged-policy", "--policy-version", "1.2.3", "--work-dir", work}
 			if tt.dryRun {
 				args = append(args, "--dry-run")
