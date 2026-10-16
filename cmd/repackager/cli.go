@@ -9,11 +9,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var gh string
+var kwctl, sbomUtility, cosign, gh string
 
 func newRootCommand() *cobra.Command {
-	var configPath, repo, policyName, policyVersion string
-	var dryRun bool
+	var configPath, policyName, policyVersion string
+	var j job
 	root := &cobra.Command{Use: "repackager", Short: "Repackage upstream Kubewarden policies as SUSE policies", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentFlags().StringVar(&configPath, "config", "config.yaml", "path of the config file")
 
@@ -38,7 +38,7 @@ compact JSON list on stdout. In GitHub Actions, also set the step outputs
 			if err != nil {
 				return err
 			}
-			releases, err := discover(cmd.Context(), cfg, repo, policyName, policyVersion)
+			releases, err := discover(cmd.Context(), cfg, j.repo, policyName, policyVersion)
 			if err != nil {
 				return err
 			}
@@ -48,17 +48,42 @@ compact JSON list on stdout. In GitHub Actions, also set the step outputs
 				return err
 			}
 			// Outside GitHub Actions, stdout holds only the JSON list.
-			return appendEnvFile("GITHUB_STEP_SUMMARY", logOut, discoverySummary(releases, dryRun))
+			return appendEnvFile("GITHUB_STEP_SUMMARY", logOut, discoverySummary(releases, j.dryRun))
 		},
 	}
 	df := discoverCmd.Flags()
-	df.StringVar(&repo, "repository", "", "owner/repo of this repository (required)")
+	df.StringVar(&j.repo, "repository", "", "owner/repo of this repository (required)")
 	df.StringVar(&policyName, "policy-name", "", "find only the release of this policy")
 	df.StringVar(&policyVersion, "policy-version", "", "find only this version, without the 'v' prefix. Needs --policy-name")
-	df.BoolVar(&dryRun, "dry-run", false, "mark the job summary as a dry run")
+	df.BoolVar(&j.dryRun, "dry-run", false, "mark the job summary as a dry run")
 	df.StringVar(&gh, "gh", "gh", "path of the gh program, or its name on the PATH")
 
-	root.AddCommand(checkConfig, discoverCmd)
+	repackageCmd := &cobra.Command{
+		Use:   "repackage",
+		Short: "Repackage one upstream policy release",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := setup(cmd, configPath, "repository", "sha", "policy-name", "policy-version", "kwctl", "sbom-utility", "cosign", "gh")
+			if err != nil {
+				return err
+			}
+			j.cfg, j.name, j.version = cfg, policyName, policyVersion
+			return repackage(cmd.Context(), &j)
+		},
+	}
+	rf := repackageCmd.Flags()
+	rf.StringVar(&j.repo, "repository", "", "owner/repo of this repository (required)")
+	rf.StringVar(&j.sha, "sha", "", "commit of this repository that runs the pipeline (required)")
+	rf.StringVar(&policyName, "policy-name", "", "name of the upstream policy, for example pod-privileged-policy (required)")
+	rf.StringVar(&policyVersion, "policy-version", "", "version of the upstream policy, without the 'v' prefix (required)")
+	rf.BoolVar(&j.dryRun, "dry-run", false, "push, sign and publish nothing, but run every check that only reads")
+	rf.StringVar(&j.workDir, "work-dir", "", "keep the files of the run in this directory, instead of a temporary directory")
+	rf.StringVar(&kwctl, "kwctl", "kwctl", "path of the kwctl program, or its name on the PATH")
+	rf.StringVar(&sbomUtility, "sbom-utility", "sbom-utility", "path of the sbom-utility program, or its name on the PATH")
+	rf.StringVar(&cosign, "cosign", "cosign", "path of the cosign program, or its name on the PATH")
+	rf.StringVar(&gh, "gh", "gh", "path of the gh program, or its name on the PATH")
+
+	root.AddCommand(checkConfig, discoverCmd, repackageCmd)
 	return root
 }
 

@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
+
+var update = flag.Bool("update", false, "write the golden files in testdata again")
 
 // rule gives the result of the first call whose command line starts with
 // prefix. In the command line, the work directory is "$WORK".
@@ -33,10 +39,13 @@ type fake struct {
 // Actions files, so that a test run in a workflow does not write to them.
 func newFake(t *testing.T, work string, rules ...rule) *fake {
 	f := &fake{t: t, work: work, rules: rules}
-	oldRun, oldLog, oldGh := run, logOut, gh
+	oldRun, oldLog, oldTools := run, logOut, [4]string{kwctl, sbomUtility, cosign, gh}
 	run, logOut = f.run, io.Discard
-	gh = "gh"
-	t.Cleanup(func() { run, logOut, gh = oldRun, oldLog, oldGh })
+	kwctl, sbomUtility, cosign, gh = "kwctl", "sbom-utility", "cosign", "gh"
+	t.Cleanup(func() {
+		run, logOut = oldRun, oldLog
+		kwctl, sbomUtility, cosign, gh = oldTools[0], oldTools[1], oldTools[2], oldTools[3]
+	})
 	t.Setenv("GITHUB_OUTPUT", "")
 	t.Setenv("GITHUB_STEP_SUMMARY", "")
 	return f
@@ -82,4 +91,24 @@ func execute(t *testing.T, args ...string) (string, error) {
 	root.SetArgs(args)
 	err := root.ExecuteContext(context.Background())
 	return out.String(), err
+}
+
+func golden(t *testing.T, name string, got []byte) {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%v. Run go test -update to write the golden file", err)
+	}
+	if diff := cmp.Diff(string(want), string(got)); diff != "" {
+		t.Errorf("the output is not equal to %s. If the change is correct, run go test -update (-want +got):\n%s", path, diff)
+	}
 }

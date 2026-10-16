@@ -1,0 +1,118 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func testJob(t *testing.T, work string) *job {
+	cfg, err := loadConfig("../../config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &job{
+		cfg: cfg, repo: "rancher/suse-security-policies", sha: testSHA, workDir: work,
+		name: "pod-privileged-policy", version: "1.2.3", tag: testTag, id: "pod-privileged",
+		url:            "https://github.com/kubewarden/policies/releases/tag/" + testTag,
+		upstream:       map[string]any{"published_at": "2026-01-02T04:04:05+01:00"},
+		upstreamRoot:   map[string]any{"SPDXID": "SPDXRef-Package-src", "versionInfo": testCommit, "licenseDeclared": "Apache-2.0"},
+		upstreamDigest: upstreamDigest, immutableRef: suseRef,
+		upstreamNamespace: "https://kubewarden.io/spdx/pod-privileged-1.2.3",
+		sourceCommit:      testCommit, sourceSHA256: strings.Repeat("e", 64),
+	}
+}
+
+func TestSUSESBOM(t *testing.T) {
+	var outputs [][]byte
+	for range 2 {
+		work := t.TempDir()
+		f := newFake(t, work, rule{prefix: "sbom-utility validate ", out: "valid"})
+		for name, content := range map[string]string{suseWasmName: "suse wasm", upstreamSBOMName: "{}"} {
+			if err := os.WriteFile(filepath.Join(work, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		j := testJob(t, work)
+		// A rerun from another commit must give the same SBOM, so that it
+		// matches the attestation of the earlier run.
+		if len(outputs) == 1 {
+			j.sha = strings.Repeat("f", 40)
+		}
+		if err := suseSBOM(context.Background(), j); err != nil {
+			t.Fatalf("suseSBOM failed: %v", err)
+		}
+		if want := "sbom-utility validate --input-file $WORK/policy-sbom.spdx.json"; len(f.calls) != 1 || f.calls[0] != want {
+			t.Errorf("suseSBOM ran %q, expected only %q", f.calls, want)
+		}
+		data, err := os.ReadFile(j.path(suseSBOMName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		outputs = append(outputs, data)
+	}
+	golden(t, "sbom.golden.json", outputs[0])
+	if !bytes.Equal(outputs[0], outputs[1]) {
+		t.Error("two runs for the same artifact gave two different SBOMs")
+	}
+}
+
+func TestReleaseNotes(t *testing.T) {
+	body := "## Fixes\n\n- Fix #12 and kubewarden/other#3, thanks @alice.\n- Mail a@b.com, keep `@code` and a.b#1.\n\n"
+	golden(t, "notes.golden.md", []byte(renderReleaseNotes(testJob(t, t.TempDir()), suseRef, body)))
+}
+
+func TestNameUUID(t *testing.T) {
+	// The expected values come from Python: uuid.uuid5(uuid.NAMESPACE_URL, name).
+	for name, want := range map[string]string{
+		"https://example.com": "4fd35a71-71ef-5a55-a9d9-aa75c889a6d0",
+		suseRef:               "2ff847c1-608d-5796-9921-69fedb2cff17",
+	} {
+		if got := nameUUID(name); got != want {
+			t.Errorf("nameUUID(%q) = %s, expected %s", name, got, want)
+		}
+	}
+}
+
+func TestVersionLess(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		want bool
+	}{
+		{"1.9.0", "1.10.0", true},
+		{"1.10.0", "1.9.0", false},
+		{"2.0.0", "2.0.0", false},
+		{"0.9.9", "1.0.0", true},
+	} {
+		if got := versionLess(tt.a, tt.b); got != tt.want {
+			t.Errorf("versionLess(%q, %q) = %v, expected %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
+func TestUpstreamRoot(t *testing.T) {
+	pkg := map[string]any{"SPDXID": "SPDXRef-a"}
+	describes := func(id string) any {
+		return map[string]any{"relationshipType": "DESCRIBES", "spdxElementId": "SPDXRef-DOCUMENT", "relatedSpdxElement": id}
+	}
+	for _, tt := range []struct {
+		name    string
+		doc     map[string]any
+		wantErr string
+	}{
+		{"relationship", map[string]any{"relationships": []any{describes("SPDXRef-a")}, "packages": []any{pkg}}, ""},
+		{"documentDescribes and the same relationship", map[string]any{"documentDescribes": []any{"SPDXRef-a"}, "relationships": []any{describes("SPDXRef-a")}, "packages": []any{pkg}}, ""},
+		{"two packages", map[string]any{"documentDescribes": []any{"SPDXRef-a", "SPDXRef-b"}, "packages": []any{pkg}}, "describes 2 packages"},
+		{"no package", map[string]any{"documentDescribes": []any{"SPDXRef-b"}, "packages": []any{pkg}}, "has no package"},
+	} {
+		got, err := upstreamRoot(tt.doc)
+		if tt.wantErr == "" && (err != nil || str(got, "SPDXID") != "SPDXRef-a") {
+			t.Errorf("%s: upstreamRoot returned %v, %v", tt.name, got, err)
+		} else if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+			t.Errorf("%s: upstreamRoot returned the error %v, but the test expects an error with %q", tt.name, err, tt.wantErr)
+		}
+	}
+}

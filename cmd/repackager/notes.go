@@ -1,6 +1,58 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+	"strings"
+)
+
+// The character before "#" or "@" must not be part of a word, a path, a domain
+// or code, so "owner/repo#12", "a.b#1" and e-mail addresses stay unchanged.
+var (
+	issueRefPattern = regexp.MustCompile(`(^|[^A-Za-z0-9_/.-])#([0-9]+)`)
+	mentionPattern  = regexp.MustCompile("(^|[^A-Za-z0-9_`/])@([A-Za-z0-9][A-Za-z0-9-]*)")
+)
+
+// rewriteChangelog links a bare "#123" to the upstream issue, and changes
+// "@user" to "`@user`", so that nobody gets a notification.
+func rewriteChangelog(body, upstreamRepo string) string {
+	// "$" starts a group reference in a Go replacement.
+	issueRepl := "${1}" + strings.ReplaceAll(upstreamRepo, "$", "$$") + "#${2}"
+	// Line by line, "^" is the start of a line and no class matches "\n".
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		line = issueRefPattern.ReplaceAllString(line, issueRepl)
+		lines[i] = mentionPattern.ReplaceAllString(line, "${1}`@${2}`")
+	}
+	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
+}
+
+func renderReleaseNotes(j *job, destRef, body string) string {
+	return fmt.Sprintf("This is a SUSE repackage of the upstream Kubewarden policy\n`%s` %s.\n\n", j.name, j.version) +
+		"The WebAssembly module comes from the upstream release pipeline. The workflow\n" +
+		"checked its signature and pulled it by digest. Then kwctl annotate replaced\n" +
+		"the provenance metadata and wrote the module out again. The workflow signed\n" +
+		"the result with the identity of this repository.\n\n| | |\n|---|---|\n" +
+		fmt.Sprintf("| Upstream release | [%s](%s) |\n", j.tag, j.url) +
+		fmt.Sprintf("| Verified source | `%s/%s@%s` |\n", j.cfg.Upstream.Registry, j.id, j.upstreamDigest) +
+		fmt.Sprintf("| Published artifact | `%s` |\n", destRef) +
+		fmt.Sprintf("| Upstream source code | `upstream-source.tar.gz`, commit [`%s`](https://github.com/%s/tree/%s), sha256 `%s` |\n",
+			j.sourceCommit, j.cfg.Upstream.Repository, j.sourceCommit, j.sourceSHA256) +
+		"\n## Changelog\n\n" + rewriteChangelog(body, j.cfg.Upstream.Repository) + "\n"
+}
+
+func releaseSummary(j *job, checkFailure string) string {
+	s := "### Repackaged " + j.tag + "\n\n"
+	if checkFailure != "" {
+		s += "> A check after the publication failed: " + strings.Join(strings.Fields(checkFailure), " ") + ". The release is published and immutable. Fix it by hand.\n\n"
+	}
+	upstreamSum, _ := fileSHA256(j.path(upstreamSBOMName))
+	suseSum, _ := fileSHA256(j.path(suseSBOMName))
+	return s + fmt.Sprintf("| | |\n|---|---|\n| Verified upstream digest | `%s` |\n| Published artifact | `%s` |\n| Release | %s |\n"+
+		"| Upstream source commit | `%s` |\n| Upstream source archive sha256 | `%s` |\n| Upstream SBOM sha256 | `%s` |\n"+
+		"| SUSE SBOM sha256 | `%s` |\n| SUSE SBOM namespace | `%s` |\n",
+		j.upstreamDigest, j.immutableRef, j.tag, j.sourceCommit, j.sourceSHA256, upstreamSum, suseSum, j.suseNamespace)
+}
 
 func discoverySummary(releases []map[string]string, dryRun bool) string {
 	s := "### Policies queued for repackaging\n\n"

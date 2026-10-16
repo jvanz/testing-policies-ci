@@ -14,11 +14,6 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const (
-	keyOCIURL  = "io.kubewarden.policy.ociUrl"
-	keyVersion = "io.kubewarden.policy.version"
-)
-
 var (
 	// A release can have the stable flag and still carry a prerelease
 	// version, so the tag must not have a suffix like "-rc1".
