@@ -25,15 +25,6 @@ func main() {
 
 func logf(format string, args ...any) { fmt.Fprintf(logOut, format+"\n", args...) }
 
-func step(title string, fn func() error) error {
-	logf("::group::%s", title)
-	defer logf("::endgroup::")
-	if err := fn(); err != nil {
-		return fmt.Errorf("%s: %w", title, err)
-	}
-	return nil
-}
-
 // escapeData keeps the stderr of a tool from starting a workflow command.
 func escapeData(s string) string {
 	return strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A").Replace(s)

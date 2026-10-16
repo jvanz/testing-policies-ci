@@ -9,35 +9,37 @@ import (
 	"testing"
 )
 
+func releaseJSON(tag, extra string) string {
+	return `{"tag_name":"` + tag + `","html_url":"https://github.com/kubewarden/policies/releases/tag/` + tag + `"` + extra + `}`
+}
+
+func metadataRule(name, id, version string) rule {
+	return rule{prefix: "gh api --hostname github.com -H Accept: application/vnd.github.raw --allow-escape-sequences repos/kubewarden/policies/contents/policies/" +
+		name + "/metadata.yml?ref=" + name + "%2Fv" + version,
+		out: "annotations:\n  io.kubewarden.policy.ociUrl: ghcr.io/kubewarden/policies/" + id + "\n  io.kubewarden.policy.version: " + version + "\n"}
+}
+
 func discoverRules() []rule {
-	release := func(tag, extra string) string {
-		return `{"tag_name":"` + tag + `","html_url":"https://github.com/kubewarden/policies/releases/tag/` + tag + `"` + extra + `}`
-	}
-	metadata := func(name, id, version string) rule {
-		return rule{prefix: "gh api --hostname github.com -H Accept: application/vnd.github.raw --allow-escape-sequences repos/kubewarden/policies/contents/policies/" +
-			name + "/metadata.yml?ref=" + name + "%2Fv" + version,
-			out: "annotations:\n  io.kubewarden.policy.ociUrl: ghcr.io/kubewarden/policies/" + id + "\n  io.kubewarden.policy.version: " + version + "\n"}
-	}
 	// gh writes the pages of --paginate --slurp as a list of lists.
 	upstream := "[[" + strings.Join([]string{
-		release("pod-privileged-policy/v1.9.0", ""),
-		release("pod-privileged-policy/v1.10.0", ""),
-		release("pod-privileged-policy/v1.11.0-rc1", ""),
-		release("pod-privileged-policy/v2.0.0", `,"prerelease":true`),
-		release("pod-privileged-policy/v3.0.0", `,"draft":true`),
-		release("sleeping-policy/v1.0.0", ""),
+		releaseJSON("pod-privileged-policy/v1.9.0", ""),
+		releaseJSON("pod-privileged-policy/v1.10.0", ""),
+		releaseJSON("pod-privileged-policy/v1.11.0-rc1", ""),
+		releaseJSON("pod-privileged-policy/v2.0.0", `,"prerelease":true`),
+		releaseJSON("pod-privileged-policy/v3.0.0", `,"draft":true`),
+		releaseJSON("sleeping-policy/v1.0.0", ""),
 	}, ",") + "],[" + strings.Join([]string{
-		release("capabilities-psp-policy/v1.0.0", ""),
-		release("safe-labels-policy/v2.0.0", ""),
+		releaseJSON("capabilities-psp-policy/v1.0.0", ""),
+		releaseJSON("safe-labels-policy/v2.0.0", ""),
 	}, ",") + "]]"
 	// A draft is the remainder of a failed run, so it does not count as released.
 	dest := `[[{"tag_name":"safe-labels-policy/v2.0.0","draft":false},{"tag_name":"pod-privileged-policy/v1.10.0","draft":true}]]`
 	return []rule{
 		{prefix: "gh api --hostname github.com --paginate --slurp repos/kubewarden/policies/releases", out: upstream},
 		{prefix: "gh api --hostname github.com --paginate --slurp repos/rancher/suse-security-policies/releases", out: dest},
-		metadata("pod-privileged-policy", "pod-privileged", "1.10.0"),
-		metadata("pod-privileged-policy", "pod-privileged", "1.9.0"),
-		metadata("capabilities-psp-policy", "capabilities-psp", "1.0.0"),
+		metadataRule("pod-privileged-policy", "pod-privileged", "1.10.0"),
+		metadataRule("pod-privileged-policy", "pod-privileged", "1.9.0"),
+		metadataRule("capabilities-psp-policy", "capabilities-psp", "1.0.0"),
 	}
 }
 

@@ -42,9 +42,7 @@ func newFake(t *testing.T, work string, rules ...rule) *fake {
 	f := &fake{t: t, work: work, rules: rules}
 	oldRun, oldLog := run, logOut
 	run, logOut = f.run, io.Discard
-	t.Cleanup(func() {
-		run, logOut = oldRun, oldLog
-	})
+	t.Cleanup(func() { run, logOut = oldRun, oldLog })
 	t.Setenv("GITHUB_OUTPUT", "")
 	t.Setenv("GITHUB_STEP_SUMMARY", "")
 	return f

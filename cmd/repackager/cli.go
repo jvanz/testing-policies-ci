@@ -11,18 +11,20 @@ import (
 
 func newRootCommand() *cobra.Command {
 	var configPath, policyName, policyVersion string
-	var j job
+	var data repackageData
 	root := &cobra.Command{Use: "repackager", Short: "Repackage upstream Kubewarden policies as SUSE policies", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentFlags().StringVar(&configPath, "config", "config.yaml", "path of the config file")
 
-	checkConfig := &cobra.Command{Use: "check-config", Short: "Check that the config file has every value the pipeline needs", Args: cobra.NoArgs,
+	checkConfig := &cobra.Command{
+		Use: "check-config", Short: "Check that the config file has every value the pipeline needs", Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			_, err := loadConfig(configPath)
 			if err == nil {
 				_, err = fmt.Fprintf(cmdOut, "%s is valid\n", configPath)
 			}
 			return err
-		}}
+		},
+	}
 
 	discoverCmd := &cobra.Command{
 		Use:   "discover",
@@ -36,7 +38,7 @@ compact JSON list on stdout. In GitHub Actions, also set the step outputs
 			if err != nil {
 				return err
 			}
-			releases, err := discover(cmd.Context(), cfg, j.repo, policyName, policyVersion)
+			releases, err := discover(cmd.Context(), cfg, data.repo, policyName, policyVersion)
 			if err != nil {
 				return err
 			}
@@ -46,14 +48,14 @@ compact JSON list on stdout. In GitHub Actions, also set the step outputs
 				return err
 			}
 			// Outside GitHub Actions, stdout holds only the JSON list.
-			return appendEnvFile("GITHUB_STEP_SUMMARY", logOut, discoverySummary(releases, j.dryRun))
+			return appendEnvFile("GITHUB_STEP_SUMMARY", logOut, discoverySummary(releases, data.dryRun))
 		},
 	}
 	df := discoverCmd.Flags()
-	df.StringVar(&j.repo, "repository", "", "owner/repo of this repository (required)")
+	df.StringVar(&data.repo, "repository", "", "owner/repo of this repository (required)")
 	df.StringVar(&policyName, "policy-name", "", "find only the release of this policy")
 	df.StringVar(&policyVersion, "policy-version", "", "find only this version, without the 'v' prefix. Needs --policy-name")
-	df.BoolVar(&j.dryRun, "dry-run", false, "mark the job summary as a dry run")
+	df.BoolVar(&data.dryRun, "dry-run", false, "mark the job summary as a dry run")
 
 	repackageCmd := &cobra.Command{
 		Use:   "repackage",
@@ -64,17 +66,17 @@ compact JSON list on stdout. In GitHub Actions, also set the step outputs
 			if err != nil {
 				return err
 			}
-			j.cfg, j.name, j.version = cfg, policyName, policyVersion
-			return repackage(cmd.Context(), &j)
+			data.cfg, data.name, data.version = cfg, policyName, policyVersion
+			return repackage(cmd.Context(), &data)
 		},
 	}
 	rf := repackageCmd.Flags()
-	rf.StringVar(&j.repo, "repository", "", "owner/repo of this repository (required)")
-	rf.StringVar(&j.sha, "sha", "", "commit of this repository that runs the pipeline (required)")
+	rf.StringVar(&data.repo, "repository", "", "owner/repo of this repository (required)")
+	rf.StringVar(&data.sha, "sha", "", "commit of this repository that runs the pipeline (required)")
 	rf.StringVar(&policyName, "policy-name", "", "name of the upstream policy, for example pod-privileged-policy (required)")
 	rf.StringVar(&policyVersion, "policy-version", "", "version of the upstream policy, without the 'v' prefix (required)")
-	rf.BoolVar(&j.dryRun, "dry-run", false, "push, sign and publish nothing, but run every check that only reads")
-	rf.StringVar(&j.workDir, "work-dir", "", "keep the files of the run in this directory, instead of a temporary directory")
+	rf.BoolVar(&data.dryRun, "dry-run", false, "push, sign and publish nothing, but run every check that only reads")
+	rf.StringVar(&data.workDir, "work-dir", "", "keep the files of the run in this directory, instead of a temporary directory")
 
 	root.AddCommand(checkConfig, discoverCmd, repackageCmd)
 	return root

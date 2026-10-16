@@ -83,17 +83,17 @@ annotations:
 			"  io.kubewarden.policy.ociUrl: ghcr.io/kubewarden/policies/pod-privileged\n  io.kubewarden.policy.version: 1.2.3\n"},
 		{prefix: "cosign verify ghcr.io/kubewarden/", out: `[{"critical":{"image":{"docker-manifest-digest":"` + upstreamDigest + `"}}}]`},
 		{prefix: "kwctl pull registry://ghcr.io/kubewarden/", write: "upstream wasm"},
-		{prefix: "kwctl inspect -o yaml $WORK/upstream-policy.wasm", out: upstreamMD},
+		{prefix: "kwctl inspect -o yaml $WORK/" + upstreamWasmName, out: upstreamMD},
 		{prefix: "kwctl annotate ", write: "suse wasm"},
-		{prefix: "kwctl inspect -o yaml $WORK/suse-policy.wasm", out: repackagedMD},
+		{prefix: "kwctl inspect -o yaml $WORK/" + suseWasmName, out: repackagedMD},
 		{prefix: "kwctl pull registry://ghcr.io/rancher/", write: "suse wasm"},
 		{prefix: "kwctl digest ", out: "registry://ghcr.io/rancher/suse-security-policies/pod-privileged:v1.2.3@sha256:" + strings.Repeat("b", 64) + "\n"},
-		{prefix: "gh release download " + testTag + " --repo github.com/kubewarden/policies --pattern policy-sbom.spdx.json ", write: `{
+		{prefix: "gh release download " + testTag + " --repo github.com/kubewarden/policies --pattern " + upstreamSBOMAsset + " ", write: `{
   "documentNamespace": "https://kubewarden.io/spdx/pod-privileged-1.2.3",
   "documentDescribes": ["SPDXRef-Package-src"],
   "packages": [{"SPDXID": "SPDXRef-Package-src", "versionInfo": "` + testCommit + `", "licenseDeclared": "Apache-2.0"}]
 }`},
-		{prefix: "gh release download " + testTag + " --repo github.com/kubewarden/policies --pattern policy-sbom.spdx.jsonl.bundle.sigstore ", write: "bundle"},
+		{prefix: "gh release download " + testTag + " --repo github.com/kubewarden/policies --pattern " + upstreamSBOMBundleAsset + " ", write: "bundle"},
 		{prefix: "sbom-utility validate ", out: "valid"},
 		// An annotated tag points at a tag object, which points at the commit.
 		{prefix: "gh api --hostname github.com repos/kubewarden/policies/git/ref/tags/", out: `{"object":{"type":"tag","sha":"` + strings.Repeat("d", 40) + `"}}`},
@@ -147,7 +147,8 @@ func TestRepackage(t *testing.T) {
 		{name: "dry run", dryRun: true, rules: freshRules(), forbid: append(signOrPublish, "cosign sign-blob")},
 		{name: "rerun", rules: rerunRules(), forbid: []string{"kwctl push", "cosign sign --", "cosign attest"},
 			want: []string{"gh release create", "-X PATCH", "kwctl digest registry://ghcr.io/rancher/suse-security-policies/pod-privileged:v1.2.3",
-				"kwctl pull registry://" + suseRef + " -o $WORK/existing-policy.wasm"}},
+				"kwctl pull registry://" + suseRef + " -o $WORK/existing-policy.wasm",
+				"cosign verify " + suseRef + " --new-bundle-format=false --output json --certificate-identity https://github.com/rancher/suse-security-policies/.github/workflows/sync-upstream-releases.yaml@refs/heads/main --certificate-oidc-issuer https://token.actions.githubusercontent.com"}},
 		{name: "destination pull denied", rules: append([]rule{{prefix: destPull, err: "Error: denied: permission denied"}}, rerunRules()...),
 			wantErr: "cannot tell whether", forbid: signOrPublish},
 		{name: "digest output without a digest", rules: append([]rule{

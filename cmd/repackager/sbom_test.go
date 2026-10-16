@@ -9,12 +9,12 @@ import (
 	"testing"
 )
 
-func testJob(t *testing.T, work string) *job {
+func testData(t *testing.T, work string) *repackageData {
 	cfg, err := loadConfig("testdata/config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &job{
+	return &repackageData{
 		cfg: cfg, repo: "rancher/suse-security-policies", sha: testSHA, workDir: work,
 		name: "pod-privileged-policy", version: "1.2.3", tag: testTag, id: "pod-privileged",
 		url:            "https://github.com/kubewarden/policies/releases/tag/" + testTag,
@@ -36,19 +36,19 @@ func TestSUSESBOM(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		j := testJob(t, work)
+		d := testData(t, work)
 		// A rerun from another commit must give the same SBOM, so that it
 		// matches the attestation of the earlier run.
 		if len(outputs) == 1 {
-			j.sha = strings.Repeat("f", 40)
+			d.sha = strings.Repeat("f", 40)
 		}
-		if err := suseSBOM(context.Background(), j); err != nil {
+		if err := suseSBOM(context.Background(), d); err != nil {
 			t.Fatalf("suseSBOM failed: %v", err)
 		}
 		if want := "sbom-utility validate --input-file $WORK/policy-sbom.spdx.json"; len(f.calls) != 1 || f.calls[0] != want {
 			t.Errorf("suseSBOM ran %q, expected only %q", f.calls, want)
 		}
-		data, err := os.ReadFile(j.path(suseSBOMName))
+		data, err := os.ReadFile(d.path(suseSBOMName))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,11 +88,12 @@ func TestVersionLess(t *testing.T) {
 	}
 }
 
+func describes(id string) any {
+	return map[string]any{"relationshipType": "DESCRIBES", "spdxElementId": "SPDXRef-DOCUMENT", "relatedSpdxElement": id}
+}
+
 func TestUpstreamRoot(t *testing.T) {
 	pkg := map[string]any{"SPDXID": "SPDXRef-a"}
-	describes := func(id string) any {
-		return map[string]any{"relationshipType": "DESCRIBES", "spdxElementId": "SPDXRef-DOCUMENT", "relatedSpdxElement": id}
-	}
 	for _, tt := range []struct {
 		name    string
 		doc     map[string]any

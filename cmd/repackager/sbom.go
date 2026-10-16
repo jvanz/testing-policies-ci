@@ -14,51 +14,114 @@ import (
 	"time"
 )
 
+// The SPDX types keep their fields sorted by JSON key. encoding/json writes
+// the fields in this order, and testdata/sbom.golden.json has sorted keys.
+type spdxDocument struct {
+	SPDXID               string                    `json:"SPDXID"`
+	CreationInfo         spdxCreationInfo          `json:"creationInfo"`
+	DataLicense          string                    `json:"dataLicense"`
+	DocumentNamespace    string                    `json:"documentNamespace"`
+	ExternalDocumentRefs []spdxExternalDocumentRef `json:"externalDocumentRefs"`
+	Name                 string                    `json:"name"`
+	Packages             []spdxPackage             `json:"packages"`
+	Relationships        []spdxRelationship        `json:"relationships"`
+	SPDXVersion          string                    `json:"spdxVersion"`
+}
+
+type spdxCreationInfo struct {
+	Created  string   `json:"created"`
+	Creators []string `json:"creators"`
+}
+
+type spdxExternalDocumentRef struct {
+	Checksum           spdxChecksum `json:"checksum"`
+	ExternalDocumentID string       `json:"externalDocumentId"`
+	SPDXDocument       string       `json:"spdxDocument"`
+}
+
+type spdxChecksum struct {
+	Algorithm     string `json:"algorithm"`
+	ChecksumValue string `json:"checksumValue"`
+}
+
+type spdxPackage struct {
+	SPDXID                string            `json:"SPDXID"`
+	Checksums             []spdxChecksum    `json:"checksums"`
+	CopyrightText         string            `json:"copyrightText"`
+	DownloadLocation      string            `json:"downloadLocation"`
+	ExternalRefs          []spdxExternalRef `json:"externalRefs"`
+	FilesAnalyzed         bool              `json:"filesAnalyzed"`
+	LicenseConcluded      string            `json:"licenseConcluded"`
+	LicenseDeclared       string            `json:"licenseDeclared"`
+	Name                  string            `json:"name"`
+	Originator            string            `json:"originator"`
+	PackageFileName       string            `json:"packageFileName"`
+	PrimaryPackagePurpose string            `json:"primaryPackagePurpose"`
+	SourceInfo            string            `json:"sourceInfo"`
+	Supplier              string            `json:"supplier"`
+	VersionInfo           string            `json:"versionInfo"`
+}
+
+type spdxExternalRef struct {
+	ReferenceCategory string `json:"referenceCategory"`
+	ReferenceLocator  string `json:"referenceLocator"`
+	ReferenceType     string `json:"referenceType"`
+}
+
+type spdxRelationship struct {
+	RelatedSPDXElement string `json:"relatedSpdxElement"`
+	RelationshipType   string `json:"relationshipType"`
+	SPDXElementID      string `json:"spdxElementId"`
+}
+
 // The document does not name the commit of the run, so a second run gives
 // the same document for the same artifact and can keep its attestation.
-func suseSBOM(ctx context.Context, j *job) error {
-	if j.immutableRef == "" {
+func suseSBOM(ctx context.Context, d *repackageData) error {
+	logf("::group::%s", titleSUSESBOM)
+	defer logf("::endgroup::")
+	if d.immutableRef == "" {
 		return nil
 	}
-	created, err := time.Parse(time.RFC3339, str(j.upstream, "published_at"))
+	created, err := time.Parse(time.RFC3339, str(d.upstream, "published_at"))
 	if err != nil {
-		return fmt.Errorf("the upstream release %s has no publication time: %w", j.tag, err)
+		return fmt.Errorf("the upstream release %s has no publication time: %w", d.tag, err)
 	}
-	wasmSum, _ := fileSHA256(j.path(suseWasmName))
-	upstreamSum, _ := fileSHA256(j.path(upstreamSBOMName))
-	cfg, root, pkg := j.cfg, j.upstreamRoot, "SPDXRef-Package-"+j.id
-	j.suseNamespace = cfg.SBOM.NamespaceBase + "/" + j.id + "/" + j.version + "-" + nameUUID(j.immutableRef)
-	repository, digest, _ := strings.Cut(j.immutableRef, "@")
-	orNoAssertion := func(key string) string { return cmp.Or(str(root, key), "NOASSERTION") }
-	doc := map[string]any{
-		"spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0", "SPDXID": "SPDXRef-DOCUMENT", "name": j.id + "-" + j.version,
-		"documentNamespace": j.suseNamespace,
-		"creationInfo": map[string]any{
-			"created":  created.UTC().Format("2006-01-02T15:04:05Z"),
-			"creators": []any{"Organization: SUSE", "Tool: " + cfg.SBOM.ToolName},
+	wasmSum, _ := fileSHA256(d.path(suseWasmName))
+	upstreamSum, _ := fileSHA256(d.path(upstreamSBOMName))
+	cfg, root, pkg := d.cfg, d.upstreamRoot, "SPDXRef-Package-"+d.id
+	d.suseNamespace = cfg.SBOM.NamespaceBase + "/" + d.id + "/" + d.version + "-" + nameUUID(d.immutableRef)
+	repository, digest, _ := strings.Cut(d.immutableRef, "@")
+	doc := spdxDocument{
+		SPDXVersion: "SPDX-2.3", DataLicense: "CC0-1.0", SPDXID: "SPDXRef-DOCUMENT", Name: d.id + "-" + d.version,
+		DocumentNamespace: d.suseNamespace,
+		CreationInfo: spdxCreationInfo{
+			Created:  created.UTC().Format("2006-01-02T15:04:05Z"),
+			Creators: []string{"Organization: SUSE", "Tool: " + cfg.SBOM.ToolName},
 		},
-		"externalDocumentRefs": []any{map[string]any{
-			"externalDocumentId": "DocumentRef-upstream", "spdxDocument": j.upstreamNamespace,
-			"checksum": map[string]any{"algorithm": "SHA256", "checksumValue": upstreamSum},
+		ExternalDocumentRefs: []spdxExternalDocumentRef{{
+			ExternalDocumentID: "DocumentRef-upstream", SPDXDocument: d.upstreamNamespace,
+			Checksum: spdxChecksum{Algorithm: "SHA256", ChecksumValue: upstreamSum},
 		}},
-		"packages": []any{map[string]any{
-			"SPDXID": pkg, "name": j.id, "versionInfo": j.version, "packageFileName": suseWasmName,
-			"checksums":     []any{map[string]any{"algorithm": "SHA256", "checksumValue": wasmSum}},
-			"filesAnalyzed": false, "primaryPackagePurpose": "APPLICATION",
-			"supplier": cfg.SBOM.Supplier, "originator": cfg.SBOM.Originator,
-			"downloadLocation": "https://github.com/" + j.repo + "/releases/download/" + j.tag + "/" + suseWasmName,
-			"externalRefs": []any{map[string]any{"referenceCategory": "PACKAGE-MANAGER", "referenceType": "purl",
-				"referenceLocator": "pkg:oci/" + j.id + "@" + strings.Replace(digest, ":", "%3A", 1) + "?repository_url=" + repository + "&tag=v" + j.version}},
-			"sourceInfo": "Repackaged by SUSE from https://github.com/" + cfg.Upstream.Repository + " release " + j.tag +
-				" (upstream OCI digest " + j.upstreamDigest + ", upstream source commit " + cmp.Or(str(root, "versionInfo"), "unknown") +
+		Packages: []spdxPackage{{
+			SPDXID: pkg, Name: d.id, VersionInfo: d.version, PackageFileName: suseWasmName,
+			Checksums:     []spdxChecksum{{Algorithm: "SHA256", ChecksumValue: wasmSum}},
+			FilesAnalyzed: false, PrimaryPackagePurpose: "APPLICATION",
+			Supplier: cfg.SBOM.Supplier, Originator: cfg.SBOM.Originator,
+			DownloadLocation: "https://github.com/" + d.repo + "/releases/download/" + d.tag + "/" + suseWasmName,
+			ExternalRefs: []spdxExternalRef{{
+				ReferenceCategory: "PACKAGE-MANAGER", ReferenceType: "purl",
+				ReferenceLocator: "pkg:oci/" + d.id + "@" + strings.Replace(digest, ":", "%3A", 1) + "?repository_url=" + repository + "&tag=v" + d.version,
+			}},
+			SourceInfo: "Repackaged by SUSE from https://github.com/" + cfg.Upstream.Repository + " release " + d.tag +
+				" (upstream OCI digest " + d.upstreamDigest + ", upstream source commit " + cmp.Or(str(root, "versionInfo"), "unknown") +
 				"). The WebAssembly code sections are unmodified; the io.kubewarden.metadata custom section was replaced with SUSE provenance annotations.",
 			// SUSE did not determine the licenses.
-			"licenseConcluded": orNoAssertion("licenseConcluded"), "licenseDeclared": orNoAssertion("licenseDeclared"),
-			"copyrightText": orNoAssertion("copyrightText"),
+			LicenseConcluded: orNoAssertion(root, "licenseConcluded"), LicenseDeclared: orNoAssertion(root, "licenseDeclared"),
+			CopyrightText: orNoAssertion(root, "copyrightText"),
 		}},
-		"relationships": []any{
-			map[string]any{"spdxElementId": "SPDXRef-DOCUMENT", "relatedSpdxElement": pkg, "relationshipType": "DESCRIBES"},
-			map[string]any{"spdxElementId": pkg, "relatedSpdxElement": "DocumentRef-upstream:" + str(root, "SPDXID"), "relationshipType": "GENERATED_FROM"},
+		Relationships: []spdxRelationship{
+			{SPDXElementID: "SPDXRef-DOCUMENT", RelatedSPDXElement: pkg, RelationshipType: "DESCRIBES"},
+			{SPDXElementID: pkg, RelatedSPDXElement: "DocumentRef-upstream:" + str(root, "SPDXID"), RelationshipType: "GENERATED_FROM"},
 		},
 	}
 	var buf bytes.Buffer
@@ -69,14 +132,16 @@ func suseSBOM(ctx context.Context, j *job) error {
 	if err := enc.Encode(doc); err != nil {
 		return err
 	}
-	if err := os.WriteFile(j.path(suseSBOMName), buf.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(d.path(suseSBOMName), buf.Bytes(), 0o644); err != nil {
 		return err
 	}
-	if out, err := run(ctx, sbomUtility, "validate", "--input-file", j.path(suseSBOMName)); err != nil {
+	if out, err := sbomUtility(ctx, "validate", "--input-file", d.path(suseSBOMName)); err != nil {
 		return fmt.Errorf("the SUSE SBOM is not valid SPDX 2.3: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
+
+func orNoAssertion(v any, key string) string { return cmp.Or(str(v, key), "NOASSERTION") }
 
 // upstreamRoot does not guess, because GENERATED_FROM would then claim a
 // provenance that nobody checked. The form of DESCRIBES depends on the tool.

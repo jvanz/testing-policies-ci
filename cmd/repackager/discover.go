@@ -85,7 +85,7 @@ func discover(ctx context.Context, cfg *config, repo, name, version string) ([]m
 
 // With --slurp, gh writes the pages as one JSON list of lists.
 func releasesOf(ctx context.Context, repo string) ([]any, error) {
-	pages, err := runJSON(ctx, gh, ghArgs("--paginate", "--slurp", "repos/"+repo+"/releases")...)
+	pages, err := decode(githubAPI(ctx, "--paginate", "--slurp", "repos/"+repo+"/releases"))
 	var all []any
 	for _, p := range list(pages) {
 		all = append(all, list(p)...)
@@ -128,8 +128,8 @@ func checkPolicy(cfg *config, name, version string) error {
 func policyID(ctx context.Context, cfg *config, e map[string]string) (id string, skip bool, err error) {
 	file := "policies/" + e["policy_name"] + "/metadata.yml"
 	// With the raw media type, gh does not change the control characters.
-	data, err := run(ctx, gh, ghArgs("-H", "Accept: application/vnd.github.raw", "--allow-escape-sequences",
-		"repos/"+cfg.Upstream.Repository+"/contents/"+file+"?ref="+url.QueryEscape(e["tag"]))...)
+	data, err := githubAPI(ctx, "-H", "Accept: application/vnd.github.raw", "--allow-escape-sequences",
+		"repos/"+cfg.Upstream.Repository+"/contents/"+file+"?ref="+url.QueryEscape(e["tag"]))
 	if err != nil {
 		return "", strings.Contains(err.Error(), "HTTP 404"), fmt.Errorf("read %s at %s: %w", file, e["tag"], err)
 	}
